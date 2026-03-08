@@ -10,12 +10,66 @@ use crate::{
     sys::fs::{prune_empty_dirs, set_overlay_opaque, sync_dir},
 };
 
+pub fn normalize_module_layout<P: AsRef<Path>>(module_dir: P) -> Result<()> {
+    let base = module_dir.as_ref();
+
+    let mappings = vec![
+        ("system/vendor", "vendor"),
+        ("system/product", "product"),
+        ("system/system_ext", "system_ext"),
+        ("system/odm", "odm"),
+        ("system/oem", "oem"),
+    ];
+
+    for (src_rel, dst_rel) in mappings {
+        let src_path = base.join(src_rel);
+        let dst_path = base.join(dst_rel);
+
+        if src_path.is_dir() {
+            if !dst_path.exists() {
+                fs::create_dir_all(&dst_path)?;
+            }
+
+            merge_directories(&src_path, &dst_path)?;
+            let _ = fs::remove_dir_all(&src_path);
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_directories(src: &Path, dst: &Path) -> Result<()> {
+    for entry in fs::read_dir(src)?.flatten() {
+        let src_item = entry.path();
+        let dst_item = dst.join(entry.file_name());
+
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            if !dst_item.exists() {
+                fs::create_dir(&dst_item)?;
+            }
+            merge_directories(&src_item, &dst_item)?;
+        } else {
+            if dst_item.exists() {
+                fs::remove_file(&dst_item)?;
+            }
+            fs::rename(&src_item, &dst_item)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn perform_sync(modules: &[Module], target_base: &Path) -> Result<()> {
     log::info!("Starting smart module sync to {}", target_base.display());
 
     prune_orphaned_modules(modules, target_base)?;
 
     modules.par_iter().for_each(|module| {
+        if let Err(e) = normalize_module_layout(&module.source_path) {
+            log::warn!("Failed to normalize layout for {}: {}", module.id, e);
+        }
+
         let dst = target_base.join(&module.id);
         let dst_backup = target_base.join(format!(".backup_{}", module.id));
 
