@@ -1,7 +1,6 @@
 use std::{collections::HashSet, fs, os::unix::fs::symlink, path::Path};
 
 use anyhow::Result;
-use rayon::prelude::*;
 use walkdir::WalkDir;
 
 use crate::{

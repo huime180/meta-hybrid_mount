@@ -154,7 +154,6 @@ where
 
 pub fn setup(
     mnt_base: &Path,
-
     moduledir: &Path,
     force_ext4: bool,
     use_erofs: bool,
