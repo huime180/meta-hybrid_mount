@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, path::Path};
+use std::{collections::HashSet, fs, os::unix::fs::symlink, path::Path};
 
 use anyhow::Result;
 use rayon::prelude::*;
@@ -27,36 +27,11 @@ pub fn normalize_module_layout<P: AsRef<Path>>(module_dir: P) -> Result<()> {
 
         if src_path.is_dir() {
             if !dst_path.exists() {
-                fs::create_dir_all(&dst_path)?;
+                symlink(&src_path, &dst_path)?;
             }
-
-            merge_directories(&src_path, &dst_path)?;
-            let _ = fs::remove_dir_all(&src_path);
         }
     }
 
-    Ok(())
-}
-
-fn merge_directories(src: &Path, dst: &Path) -> Result<()> {
-    for entry in fs::read_dir(src)?.flatten() {
-        let src_item = entry.path();
-        let dst_item = dst.join(entry.file_name());
-
-        let file_type = entry.file_type()?;
-
-        if file_type.is_dir() {
-            if !dst_item.exists() {
-                fs::create_dir(&dst_item)?;
-            }
-            merge_directories(&src_item, &dst_item)?;
-        } else {
-            if dst_item.exists() {
-                fs::remove_file(&dst_item)?;
-            }
-            fs::rename(&src_item, &dst_item)?;
-        }
-    }
     Ok(())
 }
 
