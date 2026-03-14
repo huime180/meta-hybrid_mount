@@ -7,10 +7,7 @@ use anyhow::Result;
 
 use crate::{
     conf::config,
-    core::{
-        backend::MountDriver,
-        ops::planner::{MountPlan, OverlayOperation},
-    },
+    core::ops::planner::{MountPlan, OverlayOperation},
     defs,
     mount::{
         magic_mount,
@@ -25,82 +22,80 @@ pub struct ExecutionResult {
     pub magic_module_ids: Vec<String>,
 }
 
-pub fn execute<P, D>(
-    plan: &MountPlan,
-    config: &config::Config,
-    tempdir: P,
-    driver: &D,
-) -> Result<ExecutionResult>
-where
-    P: AsRef<Path>,
-    D: MountDriver + ?Sized,
-{
-    let mut final_magic_ids: HashSet<String> = plan.magic_module_ids.iter().cloned().collect();
-    let mut final_overlay_ids: HashSet<String> = HashSet::new();
+pub struct Executer;
 
-    if driver.is_supported()? {
-        for op in &plan.overlay_ops {
-            match driver.mount_overlay(op, config) {
-                Ok(ids) => {
-                    final_overlay_ids.extend(ids);
-                }
-                Err(_) => {
-                    let involved_modules: Vec<String> = op
-                        .lowerdirs
-                        .iter()
-                        .filter_map(|p| utils::extract_module_id(p))
-                        .collect();
-                    final_magic_ids.extend(involved_modules);
+impl Executer {
+    pub fn execute<P>(
+        plan: &MountPlan,
+        config: &config::Config,
+        tempdir: P,
+    ) -> Result<ExecutionResult>
+    where
+        P: AsRef<Path>,
+    {
+        let mut final_magic_ids: HashSet<String> = plan.magic_module_ids.iter().cloned().collect();
+        let mut final_overlay_ids: HashSet<String> = HashSet::new();
+
+        if Self::is_supported()? {
+            for op in &plan.overlay_ops {
+                match Self::mount_overlay(op, config) {
+                    Ok(ids) => {
+                        final_overlay_ids.extend(ids);
+                    }
+                    Err(_) => {
+                        let involved_modules: Vec<String> = op
+                            .lowerdirs
+                            .iter()
+                            .filter_map(|p| utils::extract_module_id(p))
+                            .collect();
+                        final_magic_ids.extend(involved_modules);
+                    }
                 }
             }
-        }
-        final_overlay_ids.retain(|id| !final_magic_ids.contains(id));
-    } else {
-        final_magic_ids.extend(plan.overlay_module_ids.clone());
-    }
-
-    let mut magic_queue: Vec<String> = final_magic_ids.iter().cloned().collect();
-    magic_queue.sort();
-
-    if !magic_queue.is_empty() {
-        let magic_need_ids: HashSet<String> = magic_queue.into_iter().collect();
-        if let Ok(mounted_ids) = driver.mount_magic(&magic_need_ids, config, tempdir.as_ref()) {
-            final_magic_ids.retain(|id| mounted_ids.contains(id));
+            final_overlay_ids.retain(|id| !final_magic_ids.contains(id));
         } else {
-            final_magic_ids.clear();
+            final_magic_ids.extend(plan.overlay_module_ids.clone());
         }
+
+        let mut magic_queue: Vec<String> = final_magic_ids.iter().cloned().collect();
+        magic_queue.sort();
+
+        if !magic_queue.is_empty() {
+            let magic_need_ids: HashSet<String> = magic_queue.into_iter().collect();
+            if let Ok(mounted_ids) = Self::mount_magic(&magic_need_ids, config, tempdir.as_ref()) {
+                final_magic_ids.retain(|id| mounted_ids.contains(id));
+            } else {
+                final_magic_ids.clear();
+            }
+        }
+
+        let _ = umount_dir(tempdir.as_ref());
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            if !config.disable_umount {
+                let _ = umount_mgr::send_umountable(tempdir.as_ref());
+                let _ = umount_mgr::commit();
+            }
+        }
+
+        let mut result_overlay: Vec<String> = final_overlay_ids.into_iter().collect();
+        let mut result_magic: Vec<String> = final_magic_ids.into_iter().collect();
+
+        result_overlay.sort();
+        result_magic.sort();
+
+        Ok(ExecutionResult {
+            overlay_module_ids: result_overlay,
+            magic_module_ids: result_magic,
+        })
     }
 
-    let _ = umount_dir(tempdir.as_ref());
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        if !config.disable_umount {
-            let _ = umount_mgr::send_umountable(tempdir.as_ref());
-            let _ = umount_mgr::commit();
-        }
-    }
-
-    let mut result_overlay: Vec<String> = final_overlay_ids.into_iter().collect();
-    let mut result_magic: Vec<String> = final_magic_ids.into_iter().collect();
-
-    result_overlay.sort();
-    result_magic.sort();
-
-    Ok(ExecutionResult {
-        overlay_module_ids: result_overlay,
-        magic_module_ids: result_magic,
-    })
-}
-
-pub struct NativeMount;
-
-impl MountDriver for NativeMount {
-    fn is_supported(&self) -> Result<bool> {
+    fn is_supported() -> Result<bool> {
         overlayfs::utils::is_overlay_supported()
     }
 
-    fn mount_overlay(&self, op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
+    fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
         let involved_modules: Vec<String> = op
             .lowerdirs
             .iter()
@@ -150,7 +145,6 @@ impl MountDriver for NativeMount {
     }
 
     fn mount_magic(
-        &self,
         ids: &HashSet<String>,
         config: &config::Config,
         tempdir: &Path,

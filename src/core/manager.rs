@@ -10,7 +10,7 @@ use crate::{
     core::{
         inventory::{self, model as modules},
         ops::{
-            executor::{self, NativeMount},
+            executor::{self},
             planner, sync,
         },
         state,
@@ -139,13 +139,8 @@ impl MountController<ModulesReady> {
 
 impl MountController<Planned> {
     pub fn execute(self) -> Result<MountController<Executed>> {
-        let driver = NativeMount;
-        let result = executor::execute(
-            &self.state.plan,
-            &self.config,
-            self.tempdir.clone(),
-            &driver,
-        )?;
+        let result =
+            executor::Executer::execute(&self.state.plan, &self.config, self.tempdir.clone())?;
 
         Ok(MountController {
             config: self.config,
