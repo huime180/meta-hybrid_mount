@@ -25,11 +25,10 @@ pub fn normalize_module_layout<P: AsRef<Path>>(module_dir: P) -> Result<()> {
         let src_path = base.join(src_rel);
         let dst_path = base.join(dst_rel);
 
-        if src_path.is_dir() {
-            if !dst_path.exists() {
+        if src_path.is_dir()
+            && !dst_path.exists() {
                 symlink(&src_path, &dst_path)?;
             }
-        }
     }
 
     Ok(())
