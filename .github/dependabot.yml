@@ -20,16 +20,6 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: "npm"
-    directory: "/webui"
-    schedule:
-      interval: "weekly"
-    target-branch: "dev"
-    groups:
-      crates:
-        patterns:
-          - "*"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
