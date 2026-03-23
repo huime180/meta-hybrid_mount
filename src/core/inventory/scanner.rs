@@ -27,16 +27,16 @@ fn detect_manual_mount(path: &Path) -> bool {
     let scripts = ["post-fs-data.sh", "service.sh"];
     for script_name in scripts {
         let script_path = path.join(script_name);
-        if script_path.exists() {
-            if let Ok(file) = File::open(&script_path) {
-                let reader = BufReader::new(file);
-                for line in reader.lines().map_while(Result::ok) {
-                    let trimmed = line.trim();
-                    if !trimmed.starts_with('#')
-                        && (trimmed.contains("mount ") || trimmed.contains("--bind"))
-                    {
-                        return true;
-                    }
+        if script_path.exists()
+            && let Ok(file) = File::open(&script_path)
+        {
+            let reader = BufReader::new(file);
+            for line in reader.lines().map_while(Result::ok) {
+                let trimmed = line.trim();
+                if !trimmed.starts_with('#')
+                    && (trimmed.contains("mount ") || trimmed.contains("--bind"))
+                {
+                    return true;
                 }
             }
         }
