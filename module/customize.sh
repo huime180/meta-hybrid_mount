@@ -1,4 +1,4 @@
-if [ -z "$KSU_LATE_LOAD" ]; then
+if [ -n "$KSU_LATE_LOAD" ]; then
   abort "! unsupported late load mode"
 fi
 
