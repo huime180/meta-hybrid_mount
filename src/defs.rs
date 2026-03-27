@@ -68,7 +68,7 @@ pub const SENSITIVE_PARTITIONS: &[&str] = &[
     "prism",
 ];
 
-pub const IGNORE_UNOUNT_PARTITIONS: &[&str] = &[
+pub const IGNORE_UNMOUNT_PARTITIONS: &[&str] = &[
     "/vendor/lib",
     "/vendor/lib64",
     "/system/lib",
