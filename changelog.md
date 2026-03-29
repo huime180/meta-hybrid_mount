@@ -1,4 +1,7 @@
-## v3.2.2
+## v3.3.1
+
+Changes since v3.3.0:
+* ci(release): install armv7 android rust target## v3.2.2
 
 Changes since v3.2.1:
 * build: pin nightly toolchain for rustfmt consistency
