@@ -1,9 +1,9 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod fallback;
 mod magic;
 mod overlay;
-mod support;
 
 use std::{collections::HashSet, path::Path};
 
@@ -61,10 +61,10 @@ impl Executer {
                         final_overlay_ids.extend(ids);
                     }
                     Err(err) => {
-                        let involved_modules = support::collect_involved_modules(op);
-                        let is_symlink_loop = support::is_symlink_loop_mount_error(&err);
+                        let involved_modules = fallback::collect_involved_modules(op);
+                        let is_symlink_loop = fallback::is_symlink_loop_mount_error(&err);
                         if is_symlink_loop {
-                            if !support::overlay_fallback_allowed(config) {
+                            if !fallback::overlay_fallback_allowed(config) {
                                 log::error!(
                                     "[executor] overlay op hit symlink-loop mount error on {}, but enable_overlay_fallback=false; cannot downgrade to magic mount",
                                     op.target
@@ -100,8 +100,8 @@ impl Executer {
             }
         } else {
             if !plan.overlay_ops.is_empty() {
-                if support::overlay_fallback_allowed(config) {
-                    let fallback_ids = support::collect_overlay_modules_for_magic_fallback(plan);
+                if fallback::overlay_fallback_allowed(config) {
+                    let fallback_ids = fallback::collect_overlay_modules_for_magic_fallback(plan);
                     if fallback_ids.is_empty() {
                         bail!(
                             "[executor] overlayfs unsupported and no modules could be inferred for magic fallback"
@@ -131,7 +131,7 @@ impl Executer {
             let mounted_ids = magic::mount_magic(&magic_need_ids, config, tempdir.as_ref())
                 .map_err(|err| {
                     let failed_module_ids =
-                        support::resolve_magic_failure_modules(&err, &magic_need_list);
+                        fallback::resolve_magic_failure_modules(&err, &magic_need_list);
                     ModuleStageFailure::new(
                         FailureStage::Execute,
                         failed_module_ids.clone(),
@@ -188,7 +188,7 @@ mod tests {
 
     use anyhow::anyhow;
 
-    use super::support;
+    use super::fallback;
     use crate::{
         conf::config::{Config, OverlayMode},
         core::ops::planner::{MountPlan, OverlayOperation},
@@ -209,7 +209,7 @@ mod tests {
             lowerdirs: vec![PathBuf::from("/modA/vendor"), PathBuf::from("/modC/vendor")],
         });
 
-        let result = support::collect_overlay_modules_for_magic_fallback(&plan);
+        let result = fallback::collect_overlay_modules_for_magic_fallback(&plan);
         let expected = HashSet::from(["modA".to_string(), "modB".to_string(), "modC".to_string()]);
         assert_eq!(result, expected);
     }
@@ -219,10 +219,10 @@ mod tests {
         let err = anyhow!(
             "Failed to fsconfig create new fs: Too many symbolic links encountered (os error 40)"
         );
-        assert!(support::is_symlink_loop_mount_error(&err));
+        assert!(fallback::is_symlink_loop_mount_error(&err));
 
         let other = anyhow!("permission denied");
-        assert!(!support::is_symlink_loop_mount_error(&other));
+        assert!(!fallback::is_symlink_loop_mount_error(&other));
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         .into();
         let fallback = vec!["modA".to_string(), "modB".to_string(), "modC".to_string()];
 
-        let result = support::resolve_magic_failure_modules(&err, &fallback);
+        let result = fallback::resolve_magic_failure_modules(&err, &fallback);
         assert_eq!(result, vec!["modB".to_string(), "modA".to_string()]);
     }
 
@@ -243,7 +243,7 @@ mod tests {
         let err = anyhow!("unknown magic mount error");
         let fallback = vec!["modA".to_string(), "modC".to_string()];
 
-        let result = support::resolve_magic_failure_modules(&err, &fallback);
+        let result = fallback::resolve_magic_failure_modules(&err, &fallback);
         assert_eq!(result, fallback);
     }
 
@@ -254,9 +254,9 @@ mod tests {
             ..Config::default()
         };
         cfg.enable_overlay_fallback = false;
-        assert!(!support::overlay_fallback_allowed(&cfg));
+        assert!(!fallback::overlay_fallback_allowed(&cfg));
 
         cfg.enable_overlay_fallback = true;
-        assert!(support::overlay_fallback_allowed(&cfg));
+        assert!(fallback::overlay_fallback_allowed(&cfg));
     }
 }

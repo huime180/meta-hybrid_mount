@@ -13,7 +13,7 @@ use anyhow::Result;
 use regex_lite::Regex;
 use serde::Serialize;
 
-use super::scanner;
+use super::discovery;
 use crate::{
     conf::config::{self, MountMode},
     core::runtime_state::RuntimeState,
@@ -85,7 +85,7 @@ struct ModuleInfo {
 }
 
 impl ModuleInfo {
-    fn new(module: scanner::Module, mounted_set: &HashSet<&str>) -> Self {
+    fn new(module: discovery::Module, mounted_set: &HashSet<&str>) -> Self {
         let prop = normalize_module_prop(
             &module.id,
             ModuleProp::from(module.source_path.join("module.prop").as_path()),
@@ -111,7 +111,7 @@ impl ModuleInfo {
 }
 
 pub fn print_list(config: &config::Config) -> Result<()> {
-    let modules = scanner::scan(&config.moduledir, config)?;
+    let modules = discovery::scan(&config.moduledir, config)?;
     let mounted_ids = RuntimeState::load()
         .unwrap_or_default()
         .mounted_module_ids();

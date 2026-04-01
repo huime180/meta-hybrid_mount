@@ -18,5 +18,5 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    core::app::run(cli)
+    core::entry::run(cli)
 }

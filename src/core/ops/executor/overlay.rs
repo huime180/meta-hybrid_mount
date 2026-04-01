@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::support;
+use super::fallback;
 use crate::{
     conf::config,
     core::ops::planner::OverlayOperation,
@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
-    let involved_modules = support::collect_involved_modules(op);
+    let involved_modules = fallback::collect_involved_modules(op);
 
     log::debug!(
         "[executor] mount_overlay preparing: target={}, partition={}, modules={}",

@@ -1,10 +1,10 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-pub mod presenter;
-pub mod scanner;
+pub mod discovery;
+pub mod listing;
 
-pub use scanner::*;
+pub use discovery::*;
 
 pub use crate::conf::config::MountMode;
 use crate::defs;
