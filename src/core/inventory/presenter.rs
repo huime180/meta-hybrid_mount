@@ -13,7 +13,7 @@ use anyhow::Result;
 use regex_lite::Regex;
 use serde::Serialize;
 
-use super::scanner as inventory;
+use super::scanner;
 use crate::{
     conf::config::{self, MountMode},
     core::state::RuntimeState,
@@ -85,40 +85,40 @@ struct ModuleInfo {
 }
 
 impl ModuleInfo {
-    fn new(m: inventory::Module, mounted_set: &HashSet<&str>) -> Self {
+    fn new(module: scanner::Module, mounted_set: &HashSet<&str>) -> Self {
         let prop = normalize_module_prop(
-            &m.id,
-            ModuleProp::from(m.source_path.join("module.prop").as_path()),
+            &module.id,
+            ModuleProp::from(module.source_path.join("module.prop").as_path()),
         );
 
-        let mode_str = match m.rules.default_mode {
+        let mode_str = match module.rules.default_mode {
             MountMode::Overlay => "auto",
             MountMode::Magic => "magic",
             MountMode::Ignore => "ignore",
         };
 
         Self {
-            is_mounted: mounted_set.contains(m.id.as_str()),
-            id: m.id,
+            is_mounted: mounted_set.contains(module.id.as_str()),
+            id: module.id,
             name: prop.name,
             version: prop.version,
             author: prop.author,
             description: prop.description,
             mode: mode_str.to_string(),
-            rules: m.rules,
+            rules: module.rules,
         }
     }
 }
 
 pub fn print_list(config: &config::Config) -> Result<()> {
-    let modules = inventory::scan(&config.moduledir, config)?;
-
-    let state = RuntimeState::load().unwrap_or_default();
-    let mounted_ids = state.mounted_module_ids();
+    let modules = scanner::scan(&config.moduledir, config)?;
+    let mounted_ids = RuntimeState::load()
+        .unwrap_or_default()
+        .mounted_module_ids();
 
     let infos: Vec<ModuleInfo> = modules
         .into_iter()
-        .map(|m| ModuleInfo::new(m, &mounted_ids))
+        .map(|module| ModuleInfo::new(module, &mounted_ids))
         .collect();
 
     println!("{}", serde_json::to_string(&infos)?);

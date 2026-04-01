@@ -12,7 +12,7 @@ use crate::{
         config::{self, Config},
         loader::{self, LoadPolicy},
     },
-    core::inventory::model as modules,
+    core::inventory::presenter as modules,
     defs, utils,
 };
 
