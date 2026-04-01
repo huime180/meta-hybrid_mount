@@ -1,4 +1,21 @@
-## v3.3.1
+## v3.4.0
+
+Changes since v3.3.1:
+* chore(submodule): update webui
+* docs: add policy behavior matrix to Chinese README
+* fix: complete P2 recovery retry and magic mount counter reset
+* feat: complete P1 observability and tighten overlay fallback gate
+* fix: narrow auto skip_mount attribution for magic mount failures
+* workflow: update pnpm version
+* adj: Add checks for unsupported root platform and late load
+* fix: resolve clippy warning and update lockfile in release sync
+* chore: clarify ELOOP fallback logging by condition
+* feat: fallback symlink-loop overlay failures to magic mount
+* chore(submodule): update webui
+* chore: update cargo package
+* chore(installer): switch notice prompt to English and add feedback channels
+* chore: update license headers [skip ci]
+* chore(release): sync version v3.3.1 [skip ci]## v3.3.1
 
 Changes since v3.3.0:
 * ci(release): install armv7 android rust target## v3.2.2
