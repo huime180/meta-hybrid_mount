@@ -8,6 +8,7 @@ pub mod commands;
 pub mod finalize;
 pub mod inventory;
 pub mod manager;
+pub mod module_description;
 pub mod ops;
 pub mod recovery;
 pub mod state;

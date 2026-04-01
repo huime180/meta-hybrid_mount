@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
+    collections::HashSet,
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -65,6 +66,14 @@ impl RuntimeState {
         let json = serde_json::to_string_pretty(self)?;
         atomic_write(defs::STATE_FILE, json.as_bytes())?;
         Ok(())
+    }
+
+    pub fn mounted_module_ids(&self) -> HashSet<&str> {
+        self.overlay_modules
+            .iter()
+            .chain(self.magic_modules.iter())
+            .map(|s| s.as_str())
+            .collect()
     }
 
     pub fn load() -> Result<Self> {

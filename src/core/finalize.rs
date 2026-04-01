@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::core::{
-    inventory::model as modules,
+    module_description,
     ops::{executor::ExecutionResult, planner::MountPlan},
     state::RuntimeState,
 };
@@ -17,7 +17,7 @@ pub fn finalize(
     plan: &MountPlan,
     result: &ExecutionResult,
 ) -> Result<()> {
-    modules::update_description(
+    module_description::update_description(
         storage_mode,
         result.overlay_module_ids.len(),
         result.magic_module_ids.len(),
