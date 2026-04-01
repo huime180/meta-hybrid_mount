@@ -8,12 +8,12 @@ use anyhow::Result;
 use crate::{
     conf::config::Config,
     core::{
-        inventory::{self, model as modules},
+        finalize,
+        inventory::{self},
         ops::{
             executor::{self},
             planner, sync,
         },
-        state,
         storage::{self, StorageHandle},
     },
 };
@@ -173,32 +173,12 @@ impl MountController<Planned> {
 impl MountController<Executed> {
     pub fn finalize(self) -> Result<()> {
         log::info!("[stage:finalize] writing runtime state and module descriptions");
-        modules::update_description(
+        finalize::finalize(
             self.state.handle.mode(),
-            self.state.result.overlay_module_ids.len(),
-            self.state.result.magic_module_ids.len(),
-        );
-
-        let mut active_mounts: Vec<String> = self
-            .state
-            .plan
-            .overlay_ops
-            .iter()
-            .map(|op| op.partition_name.clone())
-            .collect();
-
-        active_mounts.sort();
-        active_mounts.dedup();
-
-        let state = state::RuntimeState::new(
-            self.state.handle.mode().to_string(),
-            self.state.handle.mount_point().to_path_buf(),
-            self.state.result.overlay_module_ids,
-            self.state.result.magic_module_ids,
-            active_mounts,
-        );
-
-        let _ = state.save();
+            self.state.handle.mount_point(),
+            &self.state.plan,
+            &self.state.result,
+        )?;
 
         log::info!("[stage:finalize] boot sequence finalized");
 

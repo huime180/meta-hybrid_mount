@@ -5,6 +5,7 @@ pub mod app;
 pub mod backend;
 pub mod boot;
 pub mod commands;
+pub mod finalize;
 pub mod inventory;
 pub mod manager;
 pub mod ops;
