@@ -118,7 +118,7 @@ impl RecoveryState {
             self.max_restarts
         );
         log::error!("[stage:recovery] {}", loop_error);
-        crate::core::module_description::update_crash_description(&loop_error.to_string());
+        crate::core::module_status::update_crash_description(&loop_error.to_string());
         Err(loop_error)
     }
 }

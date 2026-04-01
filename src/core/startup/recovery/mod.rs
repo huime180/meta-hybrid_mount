@@ -116,7 +116,7 @@ pub fn run(config: Config) -> Result<()> {
 
                 let err_msg = format!("{:#}", e).replace('\n', " -> ");
                 log::error!("[stage:recovery] unrecoverable error: {}", err_msg);
-                crate::core::module_description::update_crash_description(&err_msg);
+                crate::core::module_status::update_crash_description(&err_msg);
                 return Err(e);
             }
         }
