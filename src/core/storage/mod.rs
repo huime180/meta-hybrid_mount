@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::Result;
-pub use backends::{Ext4Backend, TmpfsBackend};
+use backends::TmpfsBackend;
 use rustix::mount::{MountPropagationFlags, UnmountFlags, mount_change, unmount as umount};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

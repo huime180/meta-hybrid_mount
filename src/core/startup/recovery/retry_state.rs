@@ -6,6 +6,8 @@ use std::{
     path::PathBuf,
 };
 
+use anyhow::Result;
+
 use crate::conf::config::Config;
 
 pub(super) enum RecoveryDecision {

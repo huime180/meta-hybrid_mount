@@ -112,9 +112,8 @@ impl ModuleInfo {
 
 pub fn print_list(config: &config::Config) -> Result<()> {
     let modules = discovery::scan(&config.moduledir, config)?;
-    let mounted_ids = RuntimeState::load()
-        .unwrap_or_default()
-        .mounted_module_ids();
+    let runtime_state = RuntimeState::load().unwrap_or_default();
+    let mounted_ids = runtime_state.mounted_module_ids();
 
     let infos: Vec<ModuleInfo> = modules
         .into_iter()
