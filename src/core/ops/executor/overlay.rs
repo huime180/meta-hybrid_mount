@@ -1,0 +1,76 @@
+// Copyright 2026 Hybrid Mount Developers
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+use std::path::Path;
+
+use anyhow::Result;
+
+use super::support;
+use crate::{
+    conf::config,
+    core::ops::planner::OverlayOperation,
+    defs,
+    mount::{overlayfs, umount_mgr},
+};
+
+pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
+    let involved_modules = support::collect_involved_modules(op);
+
+    log::debug!(
+        "[executor] mount_overlay preparing: target={}, partition={}, modules={}",
+        op.target,
+        op.partition_name,
+        if involved_modules.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            involved_modules.join(",")
+        }
+    );
+
+    let lowerdir_strings: Vec<String> = op
+        .lowerdirs
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+
+    let rw_root = Path::new(defs::SYSTEM_RW_DIR);
+    let part_rw = rw_root.join(&op.partition_name);
+    let upper = part_rw.join("upperdir");
+    let work = part_rw.join("workdir");
+
+    let (upper_opt, work_opt) = if upper.exists() && work.exists() {
+        (Some(upper), Some(work))
+    } else {
+        (None, None)
+    };
+
+    let mut mount_source = config.mountsource.clone();
+
+    if defs::IGNORE_UNMOUNT_PARTITIONS
+        .iter()
+        .any(|s| s.trim() == op.target.trim())
+    {
+        mount_source = "overlay".to_string();
+    }
+
+    overlayfs::overlayfs::mount_overlay(
+        &op.target,
+        &lowerdir_strings,
+        work_opt,
+        upper_opt,
+        &mount_source,
+    )?;
+
+    log::debug!(
+        "[executor] mount_overlay done: target={}, mount_source={}",
+        op.target,
+        mount_source
+    );
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if !config.disable_umount {
+        let _ = umount_mgr::send_umountable(&op.target);
+    }
+
+    Ok(involved_modules)
+}

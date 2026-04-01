@@ -1,6 +1,10 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod magic;
+mod overlay;
+mod support;
+
 use std::{collections::HashSet, path::Path};
 
 use anyhow::{Result, bail};
@@ -8,16 +12,10 @@ use anyhow::{Result, bail};
 use crate::{
     conf::config,
     core::{
-        ops::planner::{MountPlan, OverlayOperation},
+        ops::planner::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
     },
-    defs,
-    mount::{
-        magic_mount,
-        overlayfs::{self, utils::umount_dir},
-        umount_mgr,
-    },
-    utils,
+    mount::{overlayfs::utils::umount_dir, umount_mgr},
 };
 
 pub struct ExecutionResult {
@@ -28,50 +26,6 @@ pub struct ExecutionResult {
 pub struct Executer;
 
 impl Executer {
-    fn overlay_fallback_allowed(config: &config::Config) -> bool {
-        config.enable_overlay_fallback
-    }
-
-    fn resolve_magic_failure_modules(err: &anyhow::Error, fallback: &[String]) -> Vec<String> {
-        if let Some(magic_failure) = err.downcast_ref::<magic_mount::MagicMountModuleFailure>()
-            && !magic_failure.module_ids.is_empty()
-        {
-            return magic_failure.module_ids.clone();
-        }
-        fallback.to_vec()
-    }
-
-    fn is_symlink_loop_mount_error(err: &anyhow::Error) -> bool {
-        let mut cursor = Some(err.as_ref() as &(dyn std::error::Error + 'static));
-        while let Some(current) = cursor {
-            let msg = current.to_string();
-            if msg.contains("Too many symbolic links") || msg.contains("os error 40") {
-                return true;
-            }
-            cursor = current.source();
-        }
-        false
-    }
-
-    fn collect_involved_modules(op: &OverlayOperation) -> Vec<String> {
-        let mut involved_modules: Vec<String> = op
-            .lowerdirs
-            .iter()
-            .filter_map(|p| utils::extract_module_id(p))
-            .collect();
-        involved_modules.sort();
-        involved_modules.dedup();
-        involved_modules
-    }
-
-    fn collect_overlay_modules_for_magic_fallback(plan: &MountPlan) -> HashSet<String> {
-        let mut fallback_ids = HashSet::new();
-        for op in &plan.overlay_ops {
-            fallback_ids.extend(Self::collect_involved_modules(op));
-        }
-        fallback_ids
-    }
-
     pub fn execute<P>(
         plan: &MountPlan,
         config: &config::Config,
@@ -97,7 +51,7 @@ impl Executer {
                     op.target,
                     op.lowerdirs.len()
                 );
-                match Self::mount_overlay(op, config) {
+                match overlay::mount_overlay(op, config) {
                     Ok(ids) => {
                         log::info!(
                             "[executor] overlay op success: target={}, modules={}",
@@ -107,10 +61,10 @@ impl Executer {
                         final_overlay_ids.extend(ids);
                     }
                     Err(err) => {
-                        let involved_modules = Self::collect_involved_modules(op);
-                        let is_symlink_loop = Self::is_symlink_loop_mount_error(&err);
+                        let involved_modules = support::collect_involved_modules(op);
+                        let is_symlink_loop = support::is_symlink_loop_mount_error(&err);
                         if is_symlink_loop {
-                            if !Self::overlay_fallback_allowed(config) {
+                            if !support::overlay_fallback_allowed(config) {
                                 log::error!(
                                     "[executor] overlay op hit symlink-loop mount error on {}, but enable_overlay_fallback=false; cannot downgrade to magic mount",
                                     op.target
@@ -146,8 +100,8 @@ impl Executer {
             }
         } else {
             if !plan.overlay_ops.is_empty() {
-                if Self::overlay_fallback_allowed(config) {
-                    let fallback_ids = Self::collect_overlay_modules_for_magic_fallback(plan);
+                if support::overlay_fallback_allowed(config) {
+                    let fallback_ids = support::collect_overlay_modules_for_magic_fallback(plan);
                     if fallback_ids.is_empty() {
                         bail!(
                             "[executor] overlayfs unsupported and no modules could be inferred for magic fallback"
@@ -174,10 +128,10 @@ impl Executer {
                 "[executor] applying magic mount for modules: {}",
                 magic_need_list.join(", ")
             );
-            let mounted_ids = Self::mount_magic(&magic_need_ids, config, tempdir.as_ref())
+            let mounted_ids = magic::mount_magic(&magic_need_ids, config, tempdir.as_ref())
                 .map_err(|err| {
                     let failed_module_ids =
-                        Self::resolve_magic_failure_modules(&err, &magic_need_list);
+                        support::resolve_magic_failure_modules(&err, &magic_need_list);
                     ModuleStageFailure::new(
                         FailureStage::Execute,
                         failed_module_ids.clone(),
@@ -224,99 +178,7 @@ impl Executer {
     }
 
     fn is_supported() -> Result<bool> {
-        overlayfs::utils::is_overlay_supported()
-    }
-
-    fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
-        let involved_modules = Self::collect_involved_modules(op);
-
-        log::debug!(
-            "[executor] mount_overlay preparing: target={}, partition={}, modules={}",
-            op.target,
-            op.partition_name,
-            if involved_modules.is_empty() {
-                "<unknown>".to_string()
-            } else {
-                involved_modules.join(",")
-            }
-        );
-
-        let lowerdir_strings: Vec<String> = op
-            .lowerdirs
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect();
-
-        let rw_root = Path::new(defs::SYSTEM_RW_DIR);
-        let part_rw = rw_root.join(&op.partition_name);
-        let upper = part_rw.join("upperdir");
-        let work = part_rw.join("workdir");
-
-        let (upper_opt, work_opt) = if upper.exists() && work.exists() {
-            (Some(upper), Some(work))
-        } else {
-            (None, None)
-        };
-
-        let mut mount_source = config.mountsource.clone();
-
-        if defs::IGNORE_UNMOUNT_PARTITIONS
-            .iter()
-            .any(|s| s.trim() == op.target.trim())
-        {
-            mount_source = "overlay".to_string();
-        }
-
-        overlayfs::overlayfs::mount_overlay(
-            &op.target,
-            &lowerdir_strings,
-            work_opt,
-            upper_opt,
-            &mount_source,
-        )?;
-
-        log::debug!(
-            "[executor] mount_overlay done: target={}, mount_source={}",
-            op.target,
-            mount_source
-        );
-
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        if !config.disable_umount {
-            let _ = umount_mgr::send_umountable(&op.target);
-        }
-
-        Ok(involved_modules)
-    }
-
-    fn mount_magic(
-        ids: &HashSet<String>,
-        config: &config::Config,
-        tempdir: &Path,
-    ) -> Result<Vec<String>> {
-        let magic_ws_path = tempdir.join("magic_workspace");
-
-        log::debug!(
-            "[executor] mount_magic preparing workspace: {}",
-            magic_ws_path.display()
-        );
-
-        if !magic_ws_path.exists() {
-            std::fs::create_dir_all(&magic_ws_path)?;
-        }
-
-        magic_mount::magic_mount(
-            &magic_ws_path,
-            tempdir,
-            &config.mountsource,
-            &config.partitions,
-            ids.clone(),
-            !config.disable_umount,
-        )?;
-
-        log::debug!("[executor] mount_magic done: module_count={}", ids.len());
-
-        Ok(ids.iter().cloned().collect())
+        crate::mount::overlayfs::utils::is_overlay_supported()
     }
 }
 
@@ -326,7 +188,7 @@ mod tests {
 
     use anyhow::anyhow;
 
-    use super::Executer;
+    use super::support;
     use crate::{
         conf::config::{Config, OverlayMode},
         core::ops::planner::{MountPlan, OverlayOperation},
@@ -347,7 +209,7 @@ mod tests {
             lowerdirs: vec![PathBuf::from("/modA/vendor"), PathBuf::from("/modC/vendor")],
         });
 
-        let result = Executer::collect_overlay_modules_for_magic_fallback(&plan);
+        let result = support::collect_overlay_modules_for_magic_fallback(&plan);
         let expected = HashSet::from(["modA".to_string(), "modB".to_string(), "modC".to_string()]);
         assert_eq!(result, expected);
     }
@@ -357,10 +219,10 @@ mod tests {
         let err = anyhow!(
             "Failed to fsconfig create new fs: Too many symbolic links encountered (os error 40)"
         );
-        assert!(Executer::is_symlink_loop_mount_error(&err));
+        assert!(support::is_symlink_loop_mount_error(&err));
 
         let other = anyhow!("permission denied");
-        assert!(!Executer::is_symlink_loop_mount_error(&other));
+        assert!(!support::is_symlink_loop_mount_error(&other));
     }
 
     #[test]
@@ -372,7 +234,7 @@ mod tests {
         .into();
         let fallback = vec!["modA".to_string(), "modB".to_string(), "modC".to_string()];
 
-        let result = Executer::resolve_magic_failure_modules(&err, &fallback);
+        let result = support::resolve_magic_failure_modules(&err, &fallback);
         assert_eq!(result, vec!["modB".to_string(), "modA".to_string()]);
     }
 
@@ -381,7 +243,7 @@ mod tests {
         let err = anyhow!("unknown magic mount error");
         let fallback = vec!["modA".to_string(), "modC".to_string()];
 
-        let result = Executer::resolve_magic_failure_modules(&err, &fallback);
+        let result = support::resolve_magic_failure_modules(&err, &fallback);
         assert_eq!(result, fallback);
     }
 
@@ -392,9 +254,9 @@ mod tests {
             ..Config::default()
         };
         cfg.enable_overlay_fallback = false;
-        assert!(!Executer::overlay_fallback_allowed(&cfg));
+        assert!(!support::overlay_fallback_allowed(&cfg));
 
         cfg.enable_overlay_fallback = true;
-        assert!(Executer::overlay_fallback_allowed(&cfg));
+        assert!(support::overlay_fallback_allowed(&cfg));
     }
 }
