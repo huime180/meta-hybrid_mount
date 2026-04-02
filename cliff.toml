@@ -1,0 +1,59 @@
+[changelog]
+header = ""
+body = """
+## {{ version | default(value="Unreleased") }}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}
+- {% if commit.scope %}`{{ commit.scope }}` {% endif %}{{ commit.message | upper_first }}
+{% endfor %}
+
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+tag_pattern = "v[0-9].*"
+skip_tags = ""
+ignore_tags = ""
+topo_order = false
+sort_commits = "oldest"
+
+commit_preprocessors = [
+  { pattern = "\\[skip ci\\]", replace = "" },
+  { pattern = "^modified:\\s+", replace = "" },
+  { pattern = "\\s+", replace = " " },
+  { pattern = "\\s+$", replace = "" },
+]
+
+commit_parsers = [
+  { message = "^chore\\(release\\):", skip = true },
+  { message = "^chore\\(submodule\\):", skip = true },
+  { message = "^chore\\(deps", skip = true },
+  { message = "^chore\\(tools\\):", skip = true },
+  { message = "^chore: fmt$", skip = true },
+  { message = "^chore: make cargo clippy$", skip = true },
+  { message = "^chore: update license headers$", skip = true },
+  { message = "^style: run rustfmt", skip = true },
+  { message = "^BREAKING CHANGE:", group = "<!-- 0 --> Breaking Changes" },
+  { message = "^feat(\\(.+\\))?:", group = "<!-- 1 --> Features" },
+  { message = "^fix(\\(.+\\))?:", group = "<!-- 2 --> Fixes" },
+  { message = "^Fix\\b", group = "<!-- 2 --> Fixes" },
+  { message = "^perf(\\(.+\\))?:", group = "<!-- 3 --> Performance" },
+  { message = "^refactor(\\(.+\\))?:", group = "<!-- 4 --> Refactors" },
+  { message = "^docs(\\(.+\\))?:", group = "<!-- 5 --> Documentation" },
+  { message = "^(test|tests)(\\(.+\\))?:", group = "<!-- 6 --> Tests" },
+  { message = "^(ci|workflow|build|xtask)(\\(.+\\))?:", group = "<!-- 7 --> CI / Tooling" },
+  { message = "^(adj|metainstall|sync|daemon)(\\(.+\\))?:", group = "<!-- 8 --> Maintenance" },
+  { message = "^chore(\\(.+\\))?:", group = "<!-- 8 --> Maintenance" },
+  { message = "^Revert\\b", group = "<!-- 8 --> Maintenance" },
+  { message = "^Update\\b", group = "<!-- 8 --> Maintenance" },
+  { message = "^Remove\\b", group = "<!-- 8 --> Maintenance" },
+  { message = ".*", group = "<!-- 9 --> Other" },
+]
