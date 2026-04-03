@@ -56,7 +56,7 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "u need to send '/data/adb/magic_mount/tree' to developer "
+            "Magic mount tree dump. Share '/data/adb/magic_mount/tree' with the developer for diagnostics."
         )
     }
 }

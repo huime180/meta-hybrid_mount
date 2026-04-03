@@ -9,13 +9,14 @@ use std::{collections::HashSet, path::Path};
 
 use anyhow::{Result, bail};
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::mount::umount_mgr;
 use crate::{
     conf::config,
     core::{
         ops::planner::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
     },
-    mount::umount_mgr,
 };
 
 pub struct ExecutionResult {
@@ -23,9 +24,9 @@ pub struct ExecutionResult {
     pub magic_module_ids: Vec<String>,
 }
 
-pub struct Executer;
+pub struct Executor;
 
-impl Executer {
+impl Executor {
     pub fn execute<P>(
         plan: &MountPlan,
         config: &config::Config,

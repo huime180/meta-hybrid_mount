@@ -6,6 +6,7 @@ use std::{path::Path, process::Command};
 use anyhow::{Context, Result, bail};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use procfs::process::Process;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::mount::{MountFlags, mount};
 
 use crate::sys::fs::ensure_dir_exists;
@@ -25,14 +26,14 @@ pub fn is_mounted<P: AsRef<Path>>(path: P) -> bool {
         return false;
     };
 
-    let search = if path_str == "/" {
-        "/"
-    } else {
-        path_str.trim_end_matches('/')
-    };
-
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
+        let search = if path_str == "/" {
+            "/"
+        } else {
+            path_str.trim_end_matches('/')
+        };
+
         if let Ok(process) = Process::myself()
             && let Ok(mountinfo) = process.mountinfo()
         {
@@ -45,6 +46,7 @@ pub fn is_mounted<P: AsRef<Path>>(path: P) -> bool {
     false
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn mount_tmpfs(target: &Path, source: &str) -> Result<()> {
     ensure_dir_exists(target)?;
     mount(
@@ -56,6 +58,11 @@ pub fn mount_tmpfs(target: &Path, source: &str) -> Result<()> {
     )
     .context("Failed to mount tmpfs")?;
     Ok(())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub fn mount_tmpfs(_target: &Path, _source: &str) -> Result<()> {
+    bail!("tmpfs mounting is only supported on linux/android")
 }
 
 pub fn repair_image(image_path: &Path) -> Result<()> {

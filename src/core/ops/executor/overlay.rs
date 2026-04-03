@@ -6,12 +6,9 @@ use std::path::Path;
 use anyhow::Result;
 
 use super::fallback;
-use crate::{
-    conf::config,
-    core::ops::planner::OverlayOperation,
-    defs,
-    mount::{overlayfs, umount_mgr},
-};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::mount::umount_mgr;
+use crate::{conf::config, core::ops::planner::OverlayOperation, defs, mount::overlayfs};
 
 pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
     let involved_modules = fallback::collect_involved_modules(op);

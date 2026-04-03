@@ -150,7 +150,7 @@ impl MountController<Planned> {
     pub fn execute(self) -> Result<MountController<Executed>> {
         log::info!("[stage:execute] applying mount plan");
         let result =
-            executor::Executer::execute(&self.state.plan, &self.config, self.tempdir.clone())?;
+            executor::Executor::execute(&self.state.plan, &self.config, self.tempdir.clone())?;
 
         log::info!(
             "[stage:execute] execution complete: overlay_mounted={}, magic_mounted={}",
