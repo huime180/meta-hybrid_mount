@@ -89,7 +89,18 @@ impl Node {
     {
         let dir = module_dir.as_ref();
         let mut has_file = false;
-        for entry in dir.read_dir()?.flatten() {
+        for entry_result in dir.read_dir()? {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(err) => {
+                    log::warn!(
+                        "failed to enumerate module tree under {}: {}",
+                        dir.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
             let name = entry.file_name().to_string_lossy().to_string();
 
             let node = match self.children.entry(name.clone()) {
@@ -140,14 +151,14 @@ impl Node {
     where
         S: ToString,
     {
-        if let Ok(metadata) = entry.metadata() {
-            let path = entry.path();
-            let file_type = if metadata.file_type().is_char_device() && metadata.rdev() == 0 {
-                Some(NodeFileType::Whiteout)
-            } else {
-                Some(NodeFileType::from(metadata.file_type()))
-            };
-            if let Some(file_type) = file_type {
+        let path = entry.path();
+        match entry.metadata() {
+            Ok(metadata) => {
+                let file_type = if metadata.file_type().is_char_device() && metadata.rdev() == 0 {
+                    NodeFileType::Whiteout
+                } else {
+                    NodeFileType::from(metadata.file_type())
+                };
                 let replace = file_type == NodeFileType::Directory && Self::dir_is_replace(&path);
                 if replace {
                     log::debug!("{} need replace", path.display());
@@ -160,6 +171,9 @@ impl Node {
                     replace,
                     skip: false,
                 });
+            }
+            Err(err) => {
+                log::warn!("failed to inspect module entry {}: {}", path.display(), err);
             }
         }
 

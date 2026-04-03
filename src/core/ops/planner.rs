@@ -147,119 +147,178 @@ fn generate_with_root(
             continue;
         };
 
-        if let Ok(entries) = fs::read_dir(&content_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
+        match fs::read_dir(&content_path) {
+            Ok(entries) => {
+                for entry_result in entries {
+                    let entry = match entry_result {
+                        Ok(entry) => entry,
+                        Err(err) => {
+                            log::warn!(
+                                "[planner] failed to enumerate module={} content under {}: {}",
+                                module.id,
+                                content_path.display(),
+                                err
+                            );
+                            continue;
+                        }
+                    };
 
-                if let Ok(file_type) = entry.file_type()
-                    && file_type.is_symlink()
-                {
-                    continue;
-                }
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        continue;
+                    }
 
-                let dir_name = entry.file_name();
-                let Some(dir_name) = dir_name.to_str() else {
-                    continue;
-                };
+                    match entry.file_type() {
+                        Ok(file_type) if file_type.is_symlink() => continue,
+                        Ok(_) => {}
+                        Err(err) => {
+                            log::warn!(
+                                "[planner] failed to inspect file type for module={} path={}: {}",
+                                module.id,
+                                path.display(),
+                                err
+                            );
+                            continue;
+                        }
+                    }
 
-                if !managed_partitions.contains(dir_name) {
-                    continue;
-                }
-
-                let mode = module.rules.get_mode(dir_name);
-                if matches!(mode, MountMode::Magic) {
-                    magic_ids.insert(module.id.clone());
-                    log::info!(
-                        "[planner] module={} partition={} forced to magic mount",
-                        module.id,
-                        dir_name
-                    );
-                    continue;
-                }
-                if matches!(mode, MountMode::Ignore) {
-                    log::debug!(
-                        "[planner] module={} partition={} ignored by rule",
-                        module.id,
-                        dir_name
-                    );
-                    continue;
-                }
-
-                overlay_ids.insert(module.id.clone());
-
-                let mut queue = VecDeque::new();
-                queue.push_back(ProcessingItem {
-                    module_source: path.clone(),
-                    system_target: system_root.join(dir_name),
-                    partition_label: dir_name.to_string(),
-                });
-
-                while let Some(item) = queue.pop_front() {
-                    let ProcessingItem {
-                        module_source,
-                        system_target,
-                        partition_label,
-                    } = item;
-
-                    if !system_target.exists() {
-                        log::debug!(
-                            "[planner] skip missing target for module={}: {}",
+                    let dir_name = entry.file_name();
+                    let Some(dir_name) = dir_name.to_str() else {
+                        log::warn!(
+                            "[planner] skip non-utf8 partition directory for module={} path={:?}",
                             module.id,
-                            system_target.display()
+                            path
+                        );
+                        continue;
+                    };
+
+                    if !managed_partitions.contains(dir_name) {
+                        continue;
+                    }
+
+                    let mode = module.rules.get_mode(dir_name);
+                    if matches!(mode, MountMode::Magic) {
+                        magic_ids.insert(module.id.clone());
+                        log::info!(
+                            "[planner] module={} partition={} forced to magic mount",
+                            module.id,
+                            dir_name
+                        );
+                        continue;
+                    }
+                    if matches!(mode, MountMode::Ignore) {
+                        log::debug!(
+                            "[planner] module={} partition={} ignored by rule",
+                            module.id,
+                            dir_name
                         );
                         continue;
                     }
 
-                    let canonical_target = resolve_target_cached(&mut target_cache, &system_target);
+                    overlay_ids.insert(module.id.clone());
 
-                    let target_name = canonical_target
-                        .file_name()
-                        .map(|s| s.to_string_lossy())
-                        .unwrap_or_default();
+                    let mut queue = VecDeque::new();
+                    queue.push_back(ProcessingItem {
+                        module_source: path.clone(),
+                        system_target: system_root.join(dir_name),
+                        partition_label: dir_name.to_string(),
+                    });
 
-                    let should_split = sensitive_partitions.contains(target_name.as_ref())
-                        || extra_partitions.contains(target_name.as_ref())
-                        || target_name == "system";
-
-                    if should_split {
-                        let next_partition_label = if target_name.is_empty() {
-                            partition_label.clone()
-                        } else {
-                            target_name.to_string()
-                        };
-
-                        if let Ok(sub_entries) = fs::read_dir(&module_source) {
-                            for sub_entry in sub_entries.flatten() {
-                                let sub_path = sub_entry.path();
-                                if !sub_path.is_dir() {
-                                    continue;
-                                }
-                                let sub_name = sub_entry.file_name();
-
-                                queue.push_back(ProcessingItem {
-                                    module_source: sub_path,
-                                    system_target: canonical_target.join(sub_name),
-                                    partition_label: next_partition_label.clone(),
-                                });
-                            }
-                        }
-                    } else {
-                        log::debug!(
-                            "[planner] queue overlay layer: module={}, partition={}, layer={}, target={}",
-                            module.id,
+                    while let Some(item) = queue.pop_front() {
+                        let ProcessingItem {
+                            module_source,
+                            system_target,
                             partition_label,
-                            module_source.display(),
-                            canonical_target.display()
-                        );
-                        let (_, layers) = overlay_groups
-                            .entry(canonical_target)
-                            .or_insert_with(|| (partition_label.clone(), Vec::new()));
-                        layers.push(module_source);
+                        } = item;
+
+                        if !system_target.exists() {
+                            log::debug!(
+                                "[planner] skip missing target for module={}: {}",
+                                module.id,
+                                system_target.display()
+                            );
+                            continue;
+                        }
+
+                        let canonical_target =
+                            resolve_target_cached(&mut target_cache, &system_target);
+
+                        let target_name = canonical_target
+                            .file_name()
+                            .map(|s| s.to_string_lossy())
+                            .unwrap_or_default();
+
+                        let should_split = sensitive_partitions.contains(target_name.as_ref())
+                            || extra_partitions.contains(target_name.as_ref())
+                            || target_name == "system";
+
+                        if should_split {
+                            let next_partition_label = if target_name.is_empty() {
+                                partition_label.clone()
+                            } else {
+                                target_name.to_string()
+                            };
+
+                            match fs::read_dir(&module_source) {
+                                Ok(sub_entries) => {
+                                    for sub_entry_result in sub_entries {
+                                        let sub_entry = match sub_entry_result {
+                                            Ok(sub_entry) => sub_entry,
+                                            Err(err) => {
+                                                log::warn!(
+                                                    "[planner] failed to enumerate module={} subtree under {}: {}",
+                                                    module.id,
+                                                    module_source.display(),
+                                                    err
+                                                );
+                                                continue;
+                                            }
+                                        };
+                                        let sub_path = sub_entry.path();
+                                        if !sub_path.is_dir() {
+                                            continue;
+                                        }
+                                        let sub_name = sub_entry.file_name();
+
+                                        queue.push_back(ProcessingItem {
+                                            module_source: sub_path,
+                                            system_target: canonical_target.join(sub_name),
+                                            partition_label: next_partition_label.clone(),
+                                        });
+                                    }
+                                }
+                                Err(err) => {
+                                    log::warn!(
+                                        "[planner] failed to read module={} subtree {}: {}",
+                                        module.id,
+                                        module_source.display(),
+                                        err
+                                    );
+                                }
+                            }
+                        } else {
+                            log::debug!(
+                                "[planner] queue overlay layer: module={}, partition={}, layer={}, target={}",
+                                module.id,
+                                partition_label,
+                                module_source.display(),
+                                canonical_target.display()
+                            );
+                            let (_, layers) = overlay_groups
+                                .entry(canonical_target)
+                                .or_insert_with(|| (partition_label.clone(), Vec::new()));
+                            layers.push(module_source);
+                        }
                     }
                 }
+            }
+            Err(err) => {
+                log::warn!(
+                    "[planner] failed to read module={} content root {}: {}",
+                    module.id,
+                    content_path.display(),
+                    err
+                );
             }
         }
     }

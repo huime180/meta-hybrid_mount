@@ -93,7 +93,14 @@ where
             Some(Gid::from_raw(metadata.gid())),
         )?;
         lsetfilecon(&work_dir_path, lgetfilecon(&path)?.as_str())?;
-        for entry in path.read_dir()?.flatten() {
+        for entry_result in path.read_dir()? {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(err) => {
+                    log::warn!("failed to enumerate mirror dir {}: {}", path.display(), err);
+                    continue;
+                }
+            };
             mount_mirror(&path, &work_dir_path, &entry)?;
         }
     } else if file_type.is_symlink() {
@@ -123,7 +130,18 @@ pub fn collect_module_files(
 
     log::debug!("begin collect module files: {}", module_root.display());
 
-    for entry in module_root.read_dir()?.flatten() {
+    for entry_result in module_root.read_dir()? {
+        let entry = match entry_result {
+            Ok(entry) => entry,
+            Err(err) => {
+                log::warn!(
+                    "failed to enumerate module root {}: {}",
+                    module_root.display(),
+                    err
+                );
+                continue;
+            }
+        };
         if !entry.file_type()?.is_dir() {
             continue;
         }
