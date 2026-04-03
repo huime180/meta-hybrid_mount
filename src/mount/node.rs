@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{BTreeMap, btree_map::Entry},
     fmt,
     fs::{DirEntry, FileType},
     os::unix::fs::{FileTypeExt, MetadataExt},
@@ -40,7 +40,7 @@ impl From<FileType> for NodeFileType {
 pub struct Node {
     pub name: String,
     pub file_type: NodeFileType,
-    pub children: HashMap<String, Self>,
+    pub children: BTreeMap<String, Self>,
     pub module_path: Option<PathBuf>,
     pub replace: bool,
     pub skip: bool,
@@ -140,7 +140,7 @@ impl Node {
         Self {
             name: name.into(),
             file_type: NodeFileType::Directory,
-            children: HashMap::default(),
+            children: BTreeMap::default(),
             module_path: None,
             replace: false,
             skip: false,
@@ -166,7 +166,7 @@ impl Node {
                 return Some(Self {
                     name: name.to_string(),
                     file_type,
-                    children: HashMap::default(),
+                    children: BTreeMap::default(),
                     module_path: Some(path),
                     replace,
                     skip: false,
@@ -178,5 +178,46 @@ impl Node {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Node, NodeFileType};
+
+    #[test]
+    fn debug_output_is_sorted_by_child_name() {
+        let mut root = Node::new_root("root");
+        root.children.insert(
+            "z-last".to_string(),
+            Node {
+                name: "z-last".to_string(),
+                file_type: NodeFileType::Directory,
+                children: Default::default(),
+                module_path: None,
+                replace: false,
+                skip: false,
+            },
+        );
+        root.children.insert(
+            "a-first".to_string(),
+            Node {
+                name: "a-first".to_string(),
+                file_type: NodeFileType::Directory,
+                children: Default::default(),
+                module_path: None,
+                replace: false,
+                skip: false,
+            },
+        );
+
+        let rendered = format!("{root:?}");
+        let first_idx = rendered.find("a-first").expect("missing a-first");
+        let last_idx = rendered.find("z-last").expect("missing z-last");
+
+        assert!(
+            first_idx < last_idx,
+            "debug output should be sorted: {rendered}"
+        );
     }
 }
