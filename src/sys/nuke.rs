@@ -60,7 +60,7 @@ fn execute_ksu_nuke(path: &Path) -> Result<()> {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn execute_apatch_nuke(path: &Path) -> Result<()> {
     let kp_bin = std::env::var("HYBRID_MOUNT_APATCH_KP_BIN")
-        .unwrap_or_else(|_| "/data/adb/ap/bin/kp".to_string());
+        .unwrap_or_else(|_| "/data/adb/ap/bin/kptools".to_string());
     if !Path::new(&kp_bin).exists() {
         bail!("apatch kp tool not found: {kp_bin}");
     }

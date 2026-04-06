@@ -187,7 +187,7 @@ Artifacts are produced under `output/`.
 ## Operational Notes
 
 - Fresh installs now rely on mount-source auto-detection unless `mountsource` is explicitly set in `config.toml`.
-- On APatch, Hybrid Mount loads `/data/adb/hybrid-mount/kpm/nuke_ext4_sysfs.kpm` through `kp kpm load/control/unload` to call `ext4_unregister_sysfs` before falling back to `MNT_DETACH`.
+- On APatch, Hybrid Mount loads `/data/adb/hybrid-mount/kpm/nuke_ext4_sysfs.kpm` through `/data/adb/ap/bin/kptools kpm load/control/unload` to call `ext4_unregister_sysfs` before falling back to `MNT_DETACH`.
 - APatch runtime overrides are available through `HYBRID_MOUNT_APATCH_KP_BIN`, `HYBRID_MOUNT_APATCH_KPM_MODULE`, `HYBRID_MOUNT_APATCH_KPM_ID`, `HYBRID_MOUNT_APATCH_KPM_CALL_MODE`, `HYBRID_MOUNT_APATCH_KPM_CONTROL`, and `HYBRID_MOUNT_APATCH_KPM_UNUSED_NR`.
 - If a bad config causes boot issues, regenerate a minimal config with `gen-config` and reapply module rules incrementally.
 - For binary size optimization, prefer dependency feature trimming and release profile tuning before invasive refactors.
