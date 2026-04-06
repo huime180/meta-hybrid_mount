@@ -6,7 +6,6 @@ if [ -n "$KSU_LATE_LOAD" ] && [ -n "$KSU" ]; then
   abort "! unsupported late load mode"
 fi
 
-ui_print "- Extracting module files..."
 unzip -o "$ZIPFILE" -d "$MODPATH" >&2
 case "$ARCH" in
 "arm64")
@@ -36,12 +35,14 @@ rm -rf "$MODPATH/system"
 BASE_DIR="/data/adb/hybrid-mount"
 mkdir -p "$BASE_DIR"
 
-if [ -d "$MODPATH/kpm" ] && ls "$MODPATH"/kpm/*.kpm >/dev/null 2>&1; then
+if [ -n "$APATCH" ] && [ -d "$MODPATH/kpm" ] && ls "$MODPATH"/kpm/*.kpm >/dev/null 2>&1; then
   ui_print "- Installing APatch KPM assets..."
   mkdir -p "$BASE_DIR/kpm"
   rm -f "$BASE_DIR"/kpm/*.kpm
   cp -f "$MODPATH"/kpm/*.kpm "$BASE_DIR/kpm/"
   set_perm_recursive "$BASE_DIR/kpm" 0 0 0755 0644
+elif [ -z "$APATCH" ] && [ -d "$MODPATH/kpm" ] && ls "$MODPATH"/kpm/*.kpm >/dev/null 2>&1; then
+  ui_print "- APatch not detected, skipping KPM asset extraction"
 fi
 
 show_usage_notice_and_confirm() {
