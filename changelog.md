@@ -1,4 +1,46 @@
 
+## v3.4.5
+
+
+### <!-- 1 --> Features
+
+- Add ext4 probe and post-check for APatch nuke flow
+
+- Finalize APatch nuke KPM support
+
+- Enhance ext4 sysfs handling by using function pointers for dynamic symbol resolution
+
+
+
+### <!-- 2 --> Fixes
+
+- Fix late mode check Signed-off-by: Tools-app <localhost.hutao@gmail.com>
+
+- Fix panic
+
+- Make kpm module compile in CI toolchain headers
+
+- Collapse nested if to satisfy clippy
+
+- Use APatch kptools for kpm nuke calls
+
+- Only extract kpm assets on APatch
+
+
+
+### <!-- 3 --> Performance
+
+- `sync` Reduce repeated module tree traversal
+
+
+
+### <!-- 8 --> Maintenance
+
+- Remove extra kpm README and related doc entries
+
+
+
+
 ## v3.4.2
 
 
