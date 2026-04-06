@@ -4,7 +4,6 @@
 use std::{collections::HashSet, fs, path::Path};
 
 use anyhow::{Context, Result};
-use walkdir::WalkDir;
 
 use crate::{
     core::{
@@ -24,18 +23,27 @@ pub fn perform_sync(modules: &[Module], target_base: &Path) -> Result<()> {
         let dst = target_base.join(&module.id);
         let dst_backup = target_base.join(format!(".backup_{}", module.id));
 
-        let has_content = has_module_mount_content(module);
+        if !has_builtin_mount_root(module) {
+            crate::scoped_log!(
+                debug,
+                "sync",
+                "module skip: id={}, reason=no_builtin_partition_root",
+                module.id
+            );
+            continue;
+        }
 
-        if has_content {
-            crate::scoped_log!(info, "sync", "module start: id={}", module.id);
+        crate::scoped_log!(info, "sync", "module start: id={}", module.id);
 
-            let tmp_dst = target_base.join(format!(".tmp_{}", module.id));
+        let tmp_dst = target_base.join(format!(".tmp_{}", module.id));
 
-            if tmp_dst.exists() {
-                let _ = fs::remove_dir_all(&tmp_dst);
-            }
+        if tmp_dst.exists() {
+            let _ = fs::remove_dir_all(&tmp_dst);
+        }
 
-            if let Err(e) = sync_dir(&module.source_path, &tmp_dst, true) {
+        let sync_stats = match sync_dir(&module.source_path, &tmp_dst, true) {
+            Ok(stats) => stats,
+            Err(e) => {
                 crate::scoped_log!(
                     error,
                     "sync",
@@ -51,105 +59,102 @@ pub fn perform_sync(modules: &[Module], target_base: &Path) -> Result<()> {
                 ))
                 .with_context(|| format!("Failed to sync module {}", module.id));
             }
+        };
 
-            if let Err(e) = prune_empty_dirs(&tmp_dst) {
+        if !sync_stats.has_mount_content {
+            crate::scoped_log!(
+                debug,
+                "sync",
+                "module skip: id={}, reason=no_mount_content_after_sync",
+                module.id
+            );
+            let _ = fs::remove_dir_all(&tmp_dst);
+            continue;
+        }
+
+        if let Err(e) = prune_empty_dirs(&tmp_dst) {
+            crate::scoped_log!(
+                warn,
+                "sync",
+                "prune empty dirs failed: id={}, error={}",
+                module.id,
+                e
+            );
+        }
+
+        for opaque_dir in sync_stats.opaque_dirs {
+            if let Err(e) = set_overlay_opaque(&opaque_dir) {
                 crate::scoped_log!(
                     warn,
                     "sync",
-                    "prune empty dirs failed: id={}, error={}",
+                    "apply overlay opaque failed: id={}, path={}, error={}",
                     module.id,
+                    opaque_dir.display(),
                     e
                 );
-            }
-
-            if let Err(e) = apply_overlay_opaque_flags(&tmp_dst) {
+            } else {
                 crate::scoped_log!(
-                    warn,
+                    debug,
                     "sync",
-                    "apply overlay opaque failed: id={}, error={}",
+                    "set overlay opaque: id={}, path={}",
                     module.id,
-                    e
+                    opaque_dir.display()
                 );
             }
+        }
 
-            let mut backup_created = false;
-            if dst.exists() {
-                if let Err(e) = fs::rename(&dst, &dst_backup) {
-                    crate::scoped_log!(
-                        error,
-                        "sync",
-                        "backup existing failed: id={}, error={}",
-                        module.id,
-                        e
-                    );
-                    let _ = fs::remove_dir_all(&tmp_dst);
-                    return Err(ModuleStageFailure::new(
-                        FailureStage::Sync,
-                        vec![module.id.clone()],
-                        e.into(),
-                    ))
-                    .with_context(|| format!("Failed to back up module {}", module.id));
-                }
-                backup_created = true;
-            }
-
-            if let Err(e) = fs::rename(&tmp_dst, &dst) {
+        let mut backup_created = false;
+        if dst.exists() {
+            if let Err(e) = fs::rename(&dst, &dst_backup) {
                 crate::scoped_log!(
                     error,
                     "sync",
-                    "atomic rename failed: id={}, error={}",
+                    "backup existing failed: id={}, error={}",
                     module.id,
                     e
                 );
-                if backup_created {
-                    let _ = fs::rename(&dst_backup, &dst);
-                }
                 let _ = fs::remove_dir_all(&tmp_dst);
                 return Err(ModuleStageFailure::new(
                     FailureStage::Sync,
                     vec![module.id.clone()],
                     e.into(),
                 ))
-                .with_context(|| format!("Failed to commit synced module {}", module.id));
+                .with_context(|| format!("Failed to back up module {}", module.id));
             }
+            backup_created = true;
+        }
 
-            if backup_created && let Err(e) = fs::remove_dir_all(&dst_backup) {
-                crate::scoped_log!(
-                    warn,
-                    "sync",
-                    "cleanup backup failed: id={}, error={}",
-                    module.id,
-                    e
-                );
-            }
-        } else {
+        if let Err(e) = fs::rename(&tmp_dst, &dst) {
             crate::scoped_log!(
-                debug,
+                error,
                 "sync",
-                "module skip: id={}, reason=no_mount_content",
-                module.id
+                "atomic rename failed: id={}, error={}",
+                module.id,
+                e
+            );
+            if backup_created {
+                let _ = fs::rename(&dst_backup, &dst);
+            }
+            let _ = fs::remove_dir_all(&tmp_dst);
+            return Err(ModuleStageFailure::new(
+                FailureStage::Sync,
+                vec![module.id.clone()],
+                e.into(),
+            ))
+            .with_context(|| format!("Failed to commit synced module {}", module.id));
+        }
+
+        if backup_created && let Err(e) = fs::remove_dir_all(&dst_backup) {
+            crate::scoped_log!(
+                warn,
+                "sync",
+                "cleanup backup failed: id={}, error={}",
+                module.id,
+                e
             );
         }
     }
 
-    Ok(())
-}
-
-fn apply_overlay_opaque_flags(root: &Path) -> Result<()> {
-    for entry in WalkDir::new(root).min_depth(1).into_iter().flatten() {
-        if entry.file_type().is_file()
-            && entry.file_name() == defs::REPLACE_DIR_FILE_NAME
-            && let Some(parent) = entry.path().parent()
-        {
-            set_overlay_opaque(parent)?;
-            crate::scoped_log!(
-                debug,
-                "sync",
-                "set overlay opaque: path={}",
-                parent.display()
-            );
-        }
-    }
     Ok(())
 }
 
@@ -199,35 +204,8 @@ fn prune_orphaned_modules(modules: &[Module], target_base: &Path) -> Result<()> 
     Ok(())
 }
 
-fn has_files_recursive(path: &Path) -> bool {
-    let mut stack = vec![path.to_path_buf()];
-
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(dir) else {
-            continue;
-        };
-
-        for entry in entries.flatten() {
-            let Ok(ft) = entry.file_type() else {
-                continue;
-            };
-
-            if ft.is_file() || ft.is_symlink() || !ft.is_dir() {
-                return true;
-            }
-
-            if ft.is_dir() {
-                stack.push(entry.path());
-            }
-        }
-    }
-
-    false
-}
-
-fn has_module_mount_content(module: &Module) -> bool {
-    defs::BUILTIN_PARTITIONS.iter().any(|partition| {
-        let part_path = module.source_path.join(partition);
-        part_path.exists() && has_files_recursive(&part_path)
-    })
+fn has_builtin_mount_root(module: &Module) -> bool {
+    defs::BUILTIN_PARTITIONS
+        .iter()
+        .any(|partition| module.source_path.join(partition).is_dir())
 }

@@ -7,7 +7,7 @@ use std::{
     fs::{self, File},
     io::Write,
     os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt, symlink},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
@@ -15,6 +15,21 @@ use rustix::fs::ioctl_ficlone;
 use walkdir::WalkDir;
 
 use super::xattr::internal_copy_extended_attributes;
+use crate::defs;
+
+#[derive(Debug, Default)]
+pub struct SyncDirStats {
+    pub has_mount_content: bool,
+    pub opaque_dirs: Vec<PathBuf>,
+}
+
+fn is_builtin_partition_path(relative: &Path) -> bool {
+    relative
+        .components()
+        .next()
+        .and_then(|component| component.as_os_str().to_str())
+        .is_some_and(|name| defs::BUILTIN_PARTITIONS.contains(&name))
+}
 
 pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Result<()> {
     let path = path.as_ref();
@@ -68,6 +83,7 @@ fn native_cp_r(
     relative: &Path,
     _repair: bool,
     visited: &mut HashSet<(u64, u64)>,
+    stats: &mut SyncDirStats,
 ) -> Result<()> {
     if !dst.exists() {
         if src.is_dir() {
@@ -91,11 +107,22 @@ fn native_cp_r(
         let dev = metadata.dev();
         let ino = metadata.ino();
 
+        if !ft.is_dir() && is_builtin_partition_path(&next_relative) {
+            stats.has_mount_content = true;
+        }
+
         if ft.is_dir() {
             if !visited.insert((dev, ino)) {
                 continue;
             }
-            native_cp_r(&src_path, &dst_path, &next_relative, _repair, visited)?;
+            native_cp_r(
+                &src_path,
+                &dst_path,
+                &next_relative,
+                _repair,
+                visited,
+                stats,
+            )?;
         } else if ft.is_symlink() {
             if dst_path.exists() {
                 fs::remove_file(&dst_path)?;
@@ -113,24 +140,40 @@ fn native_cp_r(
             reflink_or_copy(&src_path, &dst_path)?;
         }
 
+        if ft.is_file() && file_name.as_os_str() == defs::REPLACE_DIR_FILE_NAME {
+            if let Some(parent) = dst_path.parent() {
+                stats.opaque_dirs.push(parent.to_path_buf());
+            }
+        }
+
         let _ = internal_copy_extended_attributes(&src_path, &dst_path);
     }
     Ok(())
 }
 
-pub fn sync_dir(src: &Path, dst: &Path, repair_context: bool) -> Result<()> {
+pub fn sync_dir(src: &Path, dst: &Path, repair_context: bool) -> Result<SyncDirStats> {
     if !src.exists() {
-        return Ok(());
+        return Ok(SyncDirStats::default());
     }
     ensure_dir_exists(dst)?;
     let mut visited = HashSet::new();
-    native_cp_r(src, dst, Path::new(""), repair_context, &mut visited).with_context(|| {
+    let mut stats = SyncDirStats::default();
+    native_cp_r(
+        src,
+        dst,
+        Path::new(""),
+        repair_context,
+        &mut visited,
+        &mut stats,
+    )
+    .with_context(|| {
         format!(
             "Failed to natively sync {} to {}",
             src.display(),
             dst.display()
         )
-    })
+    })?;
+    Ok(stats)
 }
 
 pub fn prune_empty_dirs<P: AsRef<Path>>(root: P) -> Result<()> {
@@ -151,4 +194,45 @@ pub fn prune_empty_dirs<P: AsRef<Path>>(root: P) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::sync_dir;
+
+    #[test]
+    fn sync_dir_reports_mount_content_and_replace_directories() {
+        let temp = tempdir().expect("failed to create tempdir");
+        let src = temp.path().join("src");
+        let dst = temp.path().join("dst");
+
+        fs::create_dir_all(src.join("system/bin")).expect("failed to create system/bin");
+        fs::write(src.join("system/bin/app_process"), b"bin").expect("failed to write payload");
+        fs::write(src.join("system/bin/.replace"), b"1").expect("failed to write .replace");
+        fs::write(src.join("module.prop"), b"name=demo").expect("failed to write module.prop");
+
+        let stats = sync_dir(&src, &dst, true).expect("sync_dir should succeed");
+
+        assert!(stats.has_mount_content);
+        assert_eq!(stats.opaque_dirs, vec![dst.join("system/bin")]);
+    }
+
+    #[test]
+    fn sync_dir_ignores_non_partition_root_files_for_mount_content() {
+        let temp = tempdir().expect("failed to create tempdir");
+        let src = temp.path().join("src");
+        let dst = temp.path().join("dst");
+
+        fs::create_dir_all(&src).expect("failed to create src");
+        fs::write(src.join("module.prop"), b"name=demo").expect("failed to write module.prop");
+
+        let stats = sync_dir(&src, &dst, true).expect("sync_dir should succeed");
+
+        assert!(!stats.has_mount_content);
+        assert!(stats.opaque_dirs.is_empty());
+    }
 }
