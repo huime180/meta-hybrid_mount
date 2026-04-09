@@ -100,6 +100,15 @@ jobs:
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
           echo "BUILD_VERSION=$VERSION" >> $GITHUB_ENV
 
+      - name: Install Notify Tool
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          cargo install \
+            --locked \
+            --branch main \
+            --git https://github.com/Hybrid-Mount/hybrid_mount_notify.git \
+            --root /tmp/hybrid-mount-notify
+
       - name: Notify Telegram (CI)
         if: success() && github.event_name != 'pull_request'
         env:
@@ -107,8 +116,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]]; then
-            chmod +x notify
-            ./notify "37" "日常耕作 🌱 (Daily Tilling) - ${{ env.BUILD_VERSION }}"
+            /tmp/hybrid-mount-notify/bin/notify "37" "日常耕作 🌱 (Daily Tilling) - ${{ env.BUILD_VERSION }}"
           else
             echo "Telegram secrets not set, skipping notification."
           fi

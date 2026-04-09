@@ -10,16 +10,6 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: "cargo"
-    directory: "/tools/notify"
-    schedule:
-      interval: "weekly"
-    target-branch: "dev"
-    groups:
-      crates:
-        patterns:
-          - "*"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

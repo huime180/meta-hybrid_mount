@@ -65,7 +65,6 @@ Key implementation modules:
 ├─ kpm/                 # APatch KernelPatch module source
 ├─ module/              # module scripts and packaging assets
 ├─ xtask/               # build/release automation commands
-├─ tools/notify/        # optional helper binary
 ├─ Cargo.toml           # workspace + runtime crate settings
 └─ README*.md           # user and developer docs
 ```

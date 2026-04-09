@@ -65,7 +65,6 @@ Hybrid Mount 是面向 **KernelSU** 与 **APatch** 的挂载编排元模块。
 ├─ kpm/                 # APatch KernelPatch 模块源码
 ├─ module/              # 模块脚本与打包资源
 ├─ xtask/               # 构建/发布自动化入口
-├─ tools/notify/        # 可选辅助工具
 ├─ Cargo.toml           # workspace 与主 crate 配置
 └─ README*.md           # 中英文文档
 ```
