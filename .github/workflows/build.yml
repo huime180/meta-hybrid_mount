@@ -86,6 +86,9 @@ jobs:
       - name: Build All
         env:
           HYBRID_MOUNT_KP_DIR: /tmp/apatch-kpm
+          HYBRID_MOUNT_NOTIFY: ${{ github.event_name != 'pull_request' && '1' || '0' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           export ANDROID_NDK_LATEST_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_ROOT}"
           cargo xtask build --ci
@@ -99,27 +102,6 @@ jobs:
           
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
           echo "BUILD_VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Install Notify Tool
-        if: success() && github.event_name != 'pull_request'
-        run: |
-          cargo install \
-            --locked \
-            --branch main \
-            --git https://github.com/Hybrid-Mount/hybrid_mount_notify.git \
-            --root /tmp/hybrid-mount-notify
-
-      - name: Notify Telegram (CI)
-        if: success() && github.event_name != 'pull_request'
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]]; then
-            /tmp/hybrid-mount-notify/bin/notify "37" "日常耕作 🌱 (Daily Tilling) - ${{ env.BUILD_VERSION }}"
-          else
-            echo "Telegram secrets not set, skipping notification."
-          fi
 
       - name: Prepare Artifact
         run: |

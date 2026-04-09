@@ -13,6 +13,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use fs_extra::{dir, file};
+use hybrid_mount_notify::{NotifyRequest, maybe_send_output_dir_notification};
 use serde::Deserialize;
 use zip::{CompressionMethod, write::FileOptions};
 
@@ -103,6 +104,12 @@ struct VersionInfo {
     version_code: String,
 }
 
+#[derive(Debug, Clone)]
+struct NotifyPlan {
+    topic_id: Option<i64>,
+    event_label: String,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -124,11 +131,13 @@ fn main() -> Result<()> {
                 (release, release, archs)
             };
 
-            let version_info = if let Some(tag_name) = tag {
+            let version_info = if let Some(tag_name) = tag.as_deref() {
                 resolve_release_version(&tag_name)?
             } else {
                 resolve_local_or_ci_version()?
             };
+
+            let notify_plan = resolve_notify_plan(ci, tag.as_deref(), &version_info)?;
 
             build_full(
                 cargo_release,
@@ -136,6 +145,7 @@ fn main() -> Result<()> {
                 skip_webui,
                 target_archs,
                 &version_info,
+                notify_plan.as_ref(),
             )?;
         }
         Commands::Lint => {
@@ -172,6 +182,7 @@ fn build_full(
     skip_webui: bool,
     target_archs: Vec<Arch>,
     version_info: &VersionInfo,
+    notify_plan: Option<&NotifyPlan>,
 ) -> Result<()> {
     let output_dir = Path::new("output");
     let stage_dir = output_dir.join("staging");
@@ -221,7 +232,74 @@ fn build_full(
         .compression_level(Some(9));
     zip_create_from_directory_with_options(&zip_file, &stage_dir, |_| zip_options)?;
 
+    maybe_notify_build(output_dir, notify_plan)?;
+
     Ok(())
+}
+
+fn maybe_notify_build(output_dir: &Path, notify_plan: Option<&NotifyPlan>) -> Result<()> {
+    let Some(notify_plan) = notify_plan else {
+        return Ok(());
+    };
+
+    let sent = maybe_send_output_dir_notification(
+        &NotifyRequest::new(output_dir, notify_plan.event_label.clone())
+            .with_topic_id(notify_plan.topic_id),
+    )?;
+
+    if !sent {
+        eprintln!("info: Telegram secrets not set, skipping notification");
+    }
+
+    Ok(())
+}
+
+fn resolve_notify_plan(
+    ci: bool,
+    tag: Option<&str>,
+    version_info: &VersionInfo,
+) -> Result<Option<NotifyPlan>> {
+    let notify_enabled = env_truthy("HYBRID_MOUNT_NOTIFY").unwrap_or(false);
+    let topic_override = env::var("HYBRID_MOUNT_NOTIFY_TOPIC_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .with_context(|| format!("invalid HYBRID_MOUNT_NOTIFY_TOPIC_ID: {value}"))
+        })
+        .transpose()?;
+    let label_override = env::var("HYBRID_MOUNT_NOTIFY_LABEL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    if !notify_enabled && topic_override.is_none() && label_override.is_none() {
+        return Ok(None);
+    }
+
+    let default_label = if let Some(tag) = tag {
+        format!("丰收 (Harvest) - {tag}")
+    } else if ci {
+        format!(
+            "日常耕作 🌱 (Daily Tilling) - {}",
+            version_info.full_version
+        )
+    } else {
+        format!("新产物 (New Yield) - {}", version_info.full_version)
+    };
+
+    let default_topic_id = if tag.is_some() {
+        Some(6)
+    } else if ci {
+        Some(37)
+    } else {
+        None
+    };
+
+    Ok(Some(NotifyPlan {
+        topic_id: topic_override.or(default_topic_id),
+        event_label: label_override.unwrap_or(default_label),
+    }))
 }
 
 fn stage_kpm_assets(stage_dir: &Path, require_kpm: bool) -> Result<()> {
