@@ -11,7 +11,12 @@ use std::{
 
 use crate::{defs, sys::fs::atomic_write, utils::KSU};
 
-pub fn update_description(storage_mode: &str, overlay_count: usize, magic_count: usize) {
+pub fn update_description(
+    storage_mode: &str,
+    overlay_count: usize,
+    magic_count: usize,
+    hymofs_count: usize,
+) {
     let prop_path = Path::new(defs::MODULE_PROP_FILE);
 
     if !prop_path.exists() {
@@ -29,8 +34,8 @@ pub fn update_description(storage_mode: &str, overlay_count: usize, magic_count:
     };
 
     let desc_text = format!(
-        "😋 运行中喵～ ({}) {} | Overlay: {} | Magic: {}",
-        mode_str, status_emoji, overlay_count, magic_count
+        "😋 运行中喵～ ({}) {} | HymoFS: {} | Overlay: {} | Magic: {}",
+        mode_str, status_emoji, hymofs_count, overlay_count, magic_count
     );
     set_description(prop_path, &desc_text);
 }

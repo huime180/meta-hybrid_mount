@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
-    collections::HashSet, fs, io::ErrorKind, os::unix::fs::MetadataExt, path::Path,
+    collections::HashSet,
+    fs,
+    io::ErrorKind,
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::{Context, Result, bail, ensure};
 use jwalk::WalkDir;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::mount::{UnmountFlags, unmount as umount};
 
 use crate::{
@@ -24,10 +29,10 @@ const DEFAULT_SELINUX_CONTEXT: &str = "u:object_r:system_file:s0";
 pub(super) fn setup_ext4_image(
     target: &Path,
     img_path: &Path,
-    moduledir: &Path,
+    source_paths: &[PathBuf],
 ) -> Result<Ext4Backend> {
     crate::scoped_log!(trace, "storage:ext4", "backend select: mode=ext4");
-    let total_size = calculate_total_size(moduledir)?;
+    let total_size = calculate_total_size(source_paths)?;
     let min_size = 64 * 1024 * 1024;
     let grow_size = std::cmp::max((total_size as f64 * 1.2) as u64, min_size);
 
@@ -44,10 +49,10 @@ pub(super) fn setup_ext4_image(
     Ok(Ext4Backend::new(target))
 }
 
-fn calculate_total_size(path: &Path) -> Result<u64> {
+fn calculate_total_size(paths: &[PathBuf]) -> Result<u64> {
     let mut total_size = 0;
     let mut visited_node_map = HashSet::new();
-    let mut stack = vec![path.to_path_buf()];
+    let mut stack: Vec<PathBuf> = paths.iter().filter(|path| path.exists()).cloned().collect();
 
     while let Some(current) = stack.pop() {
         let metadata = match fs::symlink_metadata(&current) {
@@ -159,6 +164,7 @@ fn mount_ext4_with_repair(img_path: &Path, target: &Path) -> Result<()> {
 
 fn reset_mount_state(target: &Path) -> Result<()> {
     if nuke::nuke_path(target).is_err() {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         umount(target, UnmountFlags::DETACH)?;
     }
     Ok(())

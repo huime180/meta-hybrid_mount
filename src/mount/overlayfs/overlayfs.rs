@@ -1,9 +1,10 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+use std::ops::BitOr;
 use std::{
     ffi::CString,
-    os::fd::AsFd,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -11,10 +12,53 @@ use std::{
 use anyhow::{Context, Result, bail};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use procfs::process::Process;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::{
+    fd::AsFd,
     fs::CWD,
     mount::{MountFlags, MoveMountFlags, mount, move_mount},
 };
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const CWD: i32 = libc::AT_FDCWD;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[derive(Clone, Copy)]
+struct MountFlags;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl MountFlags {
+    const BIND: Self = Self;
+    const REC: Self = Self;
+
+    fn empty() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl BitOr for MountFlags {
+    type Output = Self;
+
+    fn bitor(self, _rhs: Self) -> Self::Output {
+        Self
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount<P, Q>(
+    _source: P,
+    _target: Q,
+    _fstype: &str,
+    _flags: MountFlags,
+    _data: Option<&std::ffi::CStr>,
+) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    bail!("mount is only supported on linux/android")
+}
 
 use crate::{
     defs,
@@ -158,24 +202,36 @@ pub fn bind_mount(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
         from.as_ref().display(),
         to.as_ref().display()
     );
-    use rustix::mount::{OpenTreeFlags, open_tree};
-    match open_tree(
-        CWD,
-        from.as_ref(),
-        OpenTreeFlags::OPEN_TREE_CLOEXEC
-            | OpenTreeFlags::OPEN_TREE_CLONE
-            | OpenTreeFlags::AT_RECURSIVE,
-    ) {
-        Result::Ok(tree) => {
-            if move_mount(
-                tree.as_fd(),
-                "",
-                CWD,
-                to.as_ref(),
-                MoveMountFlags::MOVE_MOUNT_F_EMPTY_PATH,
-            )
-            .is_err()
-            {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use rustix::mount::{OpenTreeFlags, open_tree};
+        match open_tree(
+            CWD,
+            from.as_ref(),
+            OpenTreeFlags::OPEN_TREE_CLOEXEC
+                | OpenTreeFlags::OPEN_TREE_CLONE
+                | OpenTreeFlags::AT_RECURSIVE,
+        ) {
+            Result::Ok(tree) => {
+                if move_mount(
+                    tree.as_fd(),
+                    "",
+                    CWD,
+                    to.as_ref(),
+                    MoveMountFlags::MOVE_MOUNT_F_EMPTY_PATH,
+                )
+                .is_err()
+                {
+                    mount(
+                        from.as_ref(),
+                        to.as_ref(),
+                        "",
+                        MountFlags::BIND | MountFlags::REC,
+                        None,
+                    )?;
+                }
+            }
+            _ => {
                 mount(
                     from.as_ref(),
                     to.as_ref(),
@@ -185,17 +241,34 @@ pub fn bind_mount(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
                 )?;
             }
         }
-        _ => {
-            mount(
-                from.as_ref(),
-                to.as_ref(),
-                "",
-                MountFlags::BIND | MountFlags::REC,
-                None,
-            )?;
-        }
     }
-    Ok(())
+
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = CWD;
+        mount(
+            from.as_ref(),
+            to.as_ref(),
+            "",
+            MountFlags::BIND | MountFlags::REC,
+            None,
+        )?;
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // handled above
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        Ok(())
+    }
 }
 
 fn mount_overlay_child(

@@ -6,16 +6,12 @@ mod recovery;
 use anyhow::{Context, Result};
 
 use crate::{
-    conf::{
-        cli::Cli,
-        config::Config,
-        loader::{self, LoadPolicy},
-    },
+    conf::{cli::Cli, config::Config, loader},
     defs, sys, utils,
 };
 
 fn load_final_config(cli: &Cli) -> Result<Config> {
-    let mut config = loader::load_config(cli, LoadPolicy::FallbackToDefault)?;
+    let mut config = loader::load_config(cli)?;
     config.merge_with_cli(
         cli.moduledir.clone(),
         cli.mountsource.clone(),
@@ -38,6 +34,36 @@ pub fn run(cli: &Cli) -> Result<()> {
     }
 
     utils::check_ksu();
+
+    if config.hymofs.enabled {
+        match sys::lkm::autoload_if_needed(&config.hymofs) {
+            Ok(true) => {
+                crate::scoped_log!(
+                    info,
+                    "startup",
+                    "hymofs lkm autoload: loaded=true, dir={}",
+                    config.hymofs.lkm_dir.display()
+                );
+            }
+            Ok(false) => {
+                crate::scoped_log!(
+                    debug,
+                    "startup",
+                    "hymofs lkm autoload: loaded=false, reason=not_needed"
+                );
+            }
+            Err(err) => {
+                crate::scoped_log!(
+                    warn,
+                    "startup",
+                    "hymofs lkm autoload failed: error={:#}",
+                    err
+                );
+            }
+        }
+    } else {
+        crate::scoped_log!(debug, "startup", "hymofs disabled: skip_lkm_autoload=true");
+    }
 
     if config.disable_umount {
         crate::scoped_log!(warn, "startup", "config: disable_umount=true");

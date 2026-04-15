@@ -175,6 +175,12 @@ cargo run -p xtask -- build --release
 
 # 仅构建运行时（二进制）
 cargo run -p xtask -- build --release --skip-webui
+
+# 本地 arm64 调试包
+./scripts/build-local.sh
+
+# 打入预编译的 HymoFS LKM 资产
+./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
 ```
 
 如果要产出可直接给 APatch 使用的发布包，请在执行 `xtask` 前导出 `HYBRID_MOUNT_KP_DIR`（或 `KP_DIR`）以及 Android NDK 路径。若希望强制重编 KPM，而不是复用已有产物，可再设置 `HYBRID_MOUNT_BUILD_KPM=1`。

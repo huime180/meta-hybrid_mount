@@ -10,9 +10,8 @@ use std::{
 };
 
 use anyhow::Result;
-use extattr::lgetxattr;
 
-use crate::defs::{REPLACE_DIR_FILE_NAME, REPLACE_DIR_XATTR};
+use crate::defs::REPLACE_DIR_FILE_NAME;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum NodeFileType {
@@ -126,10 +125,13 @@ impl Node {
     where
         P: AsRef<Path>,
     {
-        if let Ok(v) = lgetxattr(&path, REPLACE_DIR_XATTR)
-            && String::from_utf8_lossy(&v) == "y"
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
-            return true;
+            if let Ok(v) = extattr::lgetxattr(path.as_ref(), crate::defs::REPLACE_DIR_XATTR)
+                && String::from_utf8_lossy(&v) == "y"
+            {
+                return true;
+            }
         }
 
         path.as_ref().join(REPLACE_DIR_FILE_NAME).exists()

@@ -80,6 +80,9 @@ struct ModuleInfo {
     author: String,
     description: String,
     mode: String,
+    strategy: String,
+    path: String,
+    enabled: bool,
     is_mounted: bool,
     rules: config::ModuleRules,
 }
@@ -94,6 +97,13 @@ impl ModuleInfo {
         let mode_str = match module.rules.default_mode {
             MountMode::Overlay => "auto",
             MountMode::Magic => "magic",
+            MountMode::Hymofs => "hymofs",
+            MountMode::Ignore => "ignore",
+        };
+        let strategy = match module.rules.default_mode {
+            MountMode::Overlay => "overlay",
+            MountMode::Magic => "magic",
+            MountMode::Hymofs => "hymofs",
             MountMode::Ignore => "ignore",
         };
 
@@ -105,6 +115,9 @@ impl ModuleInfo {
             author: prop.author,
             description: prop.description,
             mode: mode_str.to_string(),
+            strategy: strategy.to_string(),
+            path: module.source_path.display().to_string(),
+            enabled: true,
             rules: module.rules,
         }
     }

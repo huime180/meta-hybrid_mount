@@ -1,12 +1,13 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{
-    path::Path,
-    process::{Command, Output},
-};
+use std::path::Path;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::process::{Command, Output};
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use anyhow::{Context, bail};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use ksu::NukeExt4Sysfs;
 #[cfg(any(target_os = "linux", target_os = "android"))]

@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# Local build helper for Hybrid Mount test packages.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+BUILD_MODE="debug"
+ARCH="arm64"
+ALL_ARCH=false
+SKIP_WEBUI=false
+RUN_LINT=false
+HYMOFS_LKM_DIR="${HYBRID_MOUNT_HYMOFS_LKM_DIR:-}"
+
+usage() {
+	cat <<'EOF'
+Usage: ./scripts/build-local.sh [options]
+
+Options:
+  -r, --release               Build a release package
+  -a, --arch <arm64|arm|x86_64>
+                              Build a single Android ABI (default: arm64)
+      --all-arch              Build all supported Android ABIs
+      --skip-webui            Reuse the current WebUI assets
+      --lint                  Run cargo xtask lint before building
+      --hymofs-lkm-dir <DIR>  Stage .ko files from DIR into hymofs_lkm/
+  -h, --help                  Show this help message
+
+Examples:
+  ./scripts/build-local.sh
+  ./scripts/build-local.sh --release --arch arm64
+  ./scripts/build-local.sh --hymofs-lkm-dir /path/to/hymofs-lkm
+EOF
+}
+
+require_cmd() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		echo "error: required command not found: $1" >&2
+		exit 1
+	fi
+}
+
+detect_ndk_home() {
+	local candidates=(
+		"${ANDROID_NDK_HOME:-}"
+		"${ANDROID_NDK_LATEST_HOME:-}"
+		"${ANDROID_NDK_ROOT:-}"
+		"${ANDROID_NDK:-}"
+	)
+	local candidate
+	for candidate in "${candidates[@]}"; do
+		if [[ -n "$candidate" && -d "$candidate" ]]; then
+			echo "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	-r | --release)
+		BUILD_MODE="release"
+		shift
+		;;
+	-a | --arch)
+		ARCH="$2"
+		shift 2
+		;;
+	--all-arch)
+		ALL_ARCH=true
+		shift
+		;;
+	--skip-webui)
+		SKIP_WEBUI=true
+		shift
+		;;
+	--lint)
+		RUN_LINT=true
+		shift
+		;;
+	--hymofs-lkm-dir)
+		HYMOFS_LKM_DIR="$2"
+		shift 2
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		echo "error: unknown option: $1" >&2
+		usage
+		exit 1
+		;;
+	esac
+done
+
+case "$ARCH" in
+arm64 | arm | x86_64) ;;
+*)
+	echo "error: unsupported arch: $ARCH" >&2
+	exit 1
+	;;
+esac
+
+require_cmd cargo
+
+if ! cargo ndk --help >/dev/null 2>&1; then
+	echo "error: cargo-ndk is required. Install it with: cargo install cargo-ndk" >&2
+	exit 1
+fi
+
+if [[ "$SKIP_WEBUI" != "true" ]]; then
+	require_cmd pnpm
+fi
+
+NDK_HOME="$(detect_ndk_home || true)"
+if [[ -z "$NDK_HOME" ]]; then
+	echo "error: Android NDK not found. Set ANDROID_NDK_HOME (or ANDROID_NDK_LATEST_HOME)." >&2
+	exit 1
+fi
+export ANDROID_NDK_HOME="$NDK_HOME"
+
+if [[ -n "$HYMOFS_LKM_DIR" ]]; then
+	if [[ ! -d "$HYMOFS_LKM_DIR" ]]; then
+		echo "error: HymoFS LKM directory not found: $HYMOFS_LKM_DIR" >&2
+		exit 1
+	fi
+	export HYBRID_MOUNT_HYMOFS_LKM_DIR="$HYMOFS_LKM_DIR"
+fi
+
+cd "$REPO_ROOT"
+
+echo "== Hybrid Mount local build =="
+echo "Mode: $BUILD_MODE"
+if [[ "$ALL_ARCH" == "true" ]]; then
+	echo "Arch: all"
+else
+	echo "Arch: $ARCH"
+fi
+echo "NDK: $ANDROID_NDK_HOME"
+if [[ "$SKIP_WEBUI" == "true" ]]; then
+	echo "WebUI: skip"
+else
+	echo "WebUI: build"
+fi
+if [[ -n "${HYBRID_MOUNT_HYMOFS_LKM_DIR:-}" ]]; then
+	echo "HymoFS LKM dir: ${HYBRID_MOUNT_HYMOFS_LKM_DIR}"
+fi
+echo
+
+if [[ "$RUN_LINT" == "true" ]]; then
+	echo ">>> Running lint"
+	cargo run -p xtask -- lint
+	echo
+fi
+
+build_args=(run -p xtask -- build)
+if [[ "$BUILD_MODE" == "release" ]]; then
+	build_args+=(--release)
+fi
+if [[ "$SKIP_WEBUI" == "true" ]]; then
+	build_args+=(--skip-webui)
+fi
+if [[ "$ALL_ARCH" != "true" ]]; then
+	build_args+=(--arch "$ARCH")
+fi
+
+echo ">>> Building package"
+cargo "${build_args[@]}"
+echo
+echo "Artifacts:"
+ls -lh "$REPO_ROOT"/output/*.zip

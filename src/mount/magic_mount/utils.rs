@@ -10,10 +10,9 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use rustix::{
-    fs::{Gid, Mode, Uid, chmod, chown},
-    mount::mount_bind,
-};
+use rustix::fs::{Gid, Mode, Uid, chmod, chown};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use rustix::mount::mount_bind;
 
 use crate::{
     core::inventory,
@@ -21,6 +20,15 @@ use crate::{
     sys::fs::{lgetfilecon, lsetfilecon},
     utils::validate_module_id,
 };
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount_bind<P, Q>(_from: P, _to: Q) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    bail!("bind mount is only supported on linux/android")
+}
 
 fn metadata_path<P>(path: P, node: &Node) -> Result<(Metadata, PathBuf)>
 where
@@ -53,7 +61,7 @@ where
 
     let (metadata, path) = metadata_path(path, node)?;
 
-    chmod(work_dir_path, Mode::from_raw_mode(metadata.mode()))?;
+    chmod(work_dir_path, Mode::from_raw_mode(metadata.mode() as _))?;
     chown(
         work_dir_path,
         Some(Uid::from_raw(metadata.uid())),
@@ -92,7 +100,7 @@ where
         );
         create_dir(&work_dir_path)?;
         let metadata = entry.metadata()?;
-        chmod(&work_dir_path, Mode::from_raw_mode(metadata.mode()))?;
+        chmod(&work_dir_path, Mode::from_raw_mode(metadata.mode() as _))?;
         chown(
             &work_dir_path,
             Some(Uid::from_raw(metadata.uid())),

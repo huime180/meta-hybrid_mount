@@ -1,10 +1,15 @@
 // Copyright 2026 https://github.com/KernelSU-Modules-Repo/meta-overlayfs and https://github.com/bmax121/APatch
 
-use std::{fs, io::Read, path::Path};
+use std::path::Path;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::{fs, io::Read};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::{os::fd::AsFd, os::unix::fs::PermissionsExt};
 
-use anyhow::{Context, Result};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use anyhow::Context;
+use anyhow::Result;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use flate2::read::GzDecoder;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use loopdev::LoopControl;
@@ -85,14 +90,6 @@ where
     ))?;
 
     Ok(())
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-pub fn mount_ext4_loop<P>(_source: P, _target: P) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    anyhow::bail!("loop mounting is only supported on linux/android")
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

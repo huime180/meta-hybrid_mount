@@ -12,7 +12,9 @@ use anyhow::Result;
 use crate::{
     conf::config,
     core::inventory::{Module, MountMode},
-    defs, utils,
+    defs,
+    sys::hymofs,
+    utils,
 };
 
 #[derive(Debug, Clone)]
@@ -22,11 +24,28 @@ pub struct OverlayOperation {
     pub lowerdirs: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+pub struct HymofsAddRule {
+    pub target: String,
+    pub source: PathBuf,
+    pub file_type: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct HymofsMergeRule {
+    pub target: String,
+    pub source: PathBuf,
+}
+
 #[derive(Debug, Default)]
 pub struct MountPlan {
     pub overlay_ops: Vec<OverlayOperation>,
+    pub hymofs_add_rules: Vec<HymofsAddRule>,
+    pub hymofs_merge_rules: Vec<HymofsMergeRule>,
+    pub hymofs_hide_rules: Vec<String>,
     pub overlay_module_ids: Vec<String>,
     pub magic_module_ids: Vec<String>,
+    pub hymofs_module_ids: Vec<String>,
 }
 
 struct ProcessingItem {
@@ -43,6 +62,21 @@ fn build_managed_partitions(config: &config::Config) -> HashSet<String> {
     managed_partitions.insert("system".to_string());
     managed_partitions.extend(config.partitions.iter().cloned());
     managed_partitions
+}
+
+pub fn module_requests_hymofs(module: &Module) -> bool {
+    matches!(module.rules.default_mode, MountMode::Hymofs)
+        || module
+            .rules
+            .paths
+            .values()
+            .any(|mode| matches!(mode, MountMode::Hymofs))
+}
+
+pub fn hymofs_backend_requested(config: &config::Config, modules: &[Module]) -> bool {
+    config.hymofs.enabled
+        && hymofs::can_operate(config.hymofs.ignore_protocol_mismatch)
+        && modules.iter().any(module_requests_hymofs)
 }
 
 fn module_content_path(storage_root: &Path, module: &Module) -> Option<PathBuf> {
@@ -134,10 +168,25 @@ fn generate_with_root(
 
     let mut overlay_ids = HashSet::new();
     let mut magic_ids = HashSet::new();
+    let mut hymofs_ids = HashSet::new();
 
     let sensitive_partitions: HashSet<&str> = defs::SENSITIVE_PARTITIONS.iter().cloned().collect();
     let extra_partitions: HashSet<&str> = config.partitions.iter().map(String::as_str).collect();
     let managed_partitions = build_managed_partitions(config);
+    let hymofs_status = hymofs::check_status();
+    let use_hymofs =
+        config.hymofs.enabled && hymofs::can_operate(config.hymofs.ignore_protocol_mismatch);
+    let hymofs_requested = modules.iter().any(module_requests_hymofs);
+
+    if hymofs_requested && !use_hymofs {
+        crate::scoped_log!(
+            warn,
+            "planner",
+            "hymofs fallback: enabled={}, status={:?}, action=ignore",
+            config.hymofs.enabled,
+            hymofs_status
+        );
+    }
 
     for module in modules {
         crate::scoped_log!(debug, "planner", "module inspect: id={}", module.id);
@@ -226,6 +275,28 @@ fn generate_with_root(
                             module.id,
                             dir_name
                         );
+                        continue;
+                    }
+
+                    if matches!(mode, MountMode::Hymofs) {
+                        if use_hymofs {
+                            hymofs_ids.insert(module.id.clone());
+                            crate::scoped_log!(
+                                info,
+                                "planner",
+                                "mode override: module={}, partition={}, mode=hymofs",
+                                module.id,
+                                dir_name
+                            );
+                        } else {
+                            crate::scoped_log!(
+                                info,
+                                "planner",
+                                "mode fallback: module={}, partition={}, requested=hymofs, effective=ignore",
+                                module.id,
+                                dir_name
+                            );
+                        }
                         continue;
                     }
 
@@ -381,16 +452,19 @@ fn generate_with_root(
 
     plan.overlay_module_ids = overlay_ids.into_iter().collect();
     plan.magic_module_ids = magic_ids.into_iter().collect();
+    plan.hymofs_module_ids = hymofs_ids.into_iter().collect();
     plan.overlay_module_ids.sort();
     plan.magic_module_ids.sort();
+    plan.hymofs_module_ids.sort();
 
     crate::scoped_log!(
         info,
         "planner",
-        "complete: overlay_ops={}, overlay_modules={}, magic_modules={}",
+        "complete: overlay_ops={}, overlay_modules={}, magic_modules={}, hymofs_modules={}, hymofs_rule_compile=deferred",
         plan.overlay_ops.len(),
         plan.overlay_module_ids.len(),
-        plan.magic_module_ids.len()
+        plan.magic_module_ids.len(),
+        plan.hymofs_module_ids.len()
     );
 
     Ok(plan)
@@ -576,6 +650,33 @@ mod tests {
             plan.overlay_ops[0].lowerdirs,
             vec![storage_root.join("mod_storage/system/bin")]
         );
+    }
+
+    #[test]
+    fn planner_falls_back_to_ignore_when_hymofs_is_disabled() {
+        let temp = tempdir().expect("failed to create temp dir");
+        let system_root = temp.path().join("rootfs");
+        let storage_root = temp.path().join("storage");
+
+        fs::create_dir_all(system_root.join("system/bin")).expect("failed to create system/bin");
+
+        let module = module_with_layout(
+            &storage_root,
+            "mod_hymofs",
+            &["system/bin"],
+            ModuleRules {
+                default_mode: MountMode::Hymofs,
+                ..ModuleRules::default()
+            },
+        );
+
+        let plan = generate_with_root(&Config::default(), &[module], &storage_root, &system_root)
+            .expect("planner should succeed");
+
+        assert!(plan.overlay_ops.is_empty());
+        assert!(plan.overlay_module_ids.is_empty());
+        assert!(plan.magic_module_ids.is_empty());
+        assert!(plan.hymofs_module_ids.is_empty());
     }
 
     #[test]

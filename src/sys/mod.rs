@@ -2,5 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod fs;
+pub mod hymofs;
+pub mod lkm;
 pub mod mount;
 pub mod nuke;

@@ -175,6 +175,12 @@ cargo run -p xtask -- build --release
 
 # runtime only (skip web assets)
 cargo run -p xtask -- build --release --skip-webui
+
+# local arm64 debug package
+./scripts/build-local.sh
+
+# local package with prebuilt HymoFS LKM assets
+./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
 ```
 
 For APatch-ready release packages, export `HYBRID_MOUNT_KP_DIR` (or `KP_DIR`) and an Android NDK path before invoking `xtask`. Set `HYBRID_MOUNT_BUILD_KPM=1` if you want to force a KPM rebuild instead of reusing an existing artifact.

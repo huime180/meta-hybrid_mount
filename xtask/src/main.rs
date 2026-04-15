@@ -23,6 +23,7 @@ use crate::zip_ext::zip_create_from_directory_with_options;
 const KPM_PROJECT_DIR: &str = "kpm";
 const KPM_MODULE_NAME: &str = "nuke_ext4_sysfs";
 const KPM_STAGE_NAME: &str = "nuke_ext4_sysfs.kpm";
+const HYMOFS_LKM_STAGE_DIR: &str = "hymofs_lkm";
 
 #[derive(Deserialize)]
 struct HybridMountMetadata {
@@ -132,7 +133,7 @@ fn main() -> Result<()> {
             };
 
             let version_info = if let Some(tag_name) = tag.as_deref() {
-                resolve_release_version(&tag_name)?
+                resolve_release_version(tag_name)?
             } else {
                 resolve_local_or_ci_version()?
             };
@@ -218,6 +219,7 @@ fn build_full(
     let options = dir::CopyOptions::new().overwrite(true).content_only(true);
     dir::copy(module_src, &stage_dir, &options)?;
     stage_kpm_assets(&stage_dir, cargo_release)?;
+    stage_hymofs_lkm_assets(&stage_dir)?;
 
     generate_module_prop(&stage_dir, version_info)?;
 
@@ -327,6 +329,62 @@ fn stage_kpm_assets(stage_dir: &Path, require_kpm: bool) -> Result<()> {
         &file::CopyOptions::new().overwrite(true),
     )?;
     Ok(())
+}
+
+fn stage_hymofs_lkm_assets(stage_dir: &Path) -> Result<()> {
+    let Some(source_dir) = env::var_os("HYBRID_MOUNT_HYMOFS_LKM_DIR").map(PathBuf::from) else {
+        return Ok(());
+    };
+
+    if !source_dir.is_dir() {
+        bail!(
+            "HYBRID_MOUNT_HYMOFS_LKM_DIR must point to a directory containing .ko files: {}",
+            source_dir.display()
+        );
+    }
+
+    let artifacts = collect_hymofs_lkm_artifacts(&source_dir)?;
+    if artifacts.is_empty() {
+        bail!(
+            "No .ko files were found under HYBRID_MOUNT_HYMOFS_LKM_DIR={}",
+            source_dir.display()
+        );
+    }
+
+    let lkm_stage_dir = stage_dir.join(HYMOFS_LKM_STAGE_DIR);
+    fs::create_dir_all(&lkm_stage_dir)?;
+
+    for artifact in artifacts {
+        let Some(file_name) = artifact.file_name() else {
+            continue;
+        };
+        file::copy(
+            &artifact,
+            lkm_stage_dir.join(file_name),
+            &file::CopyOptions::new().overwrite(true),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn collect_hymofs_lkm_artifacts(source_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut stack = vec![source_dir.to_path_buf()];
+    let mut artifacts = Vec::new();
+
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension() == Some(OsStr::new("ko")) {
+                artifacts.push(path);
+            }
+        }
+    }
+
+    artifacts.sort();
+    Ok(artifacts)
 }
 
 fn ensure_kpm_artifact(project_dir: &Path, require_kpm: bool) -> Result<Option<PathBuf>> {

@@ -8,16 +8,118 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+use std::{ffi::CStr, ops::BitOr};
 
 use anyhow::{Context, Result, bail};
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::mount::{
     MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_bind, mount_change, mount_move,
     mount_remount, unmount,
 };
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[derive(Clone, Copy)]
+struct MountFlags;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl MountFlags {
+    const RDONLY: Self = Self;
+    const BIND: Self = Self;
+
+    fn empty() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl BitOr for MountFlags {
+    type Output = Self;
+
+    fn bitor(self, _rhs: Self) -> Self::Output {
+        Self
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[derive(Clone, Copy)]
+struct MountPropagationFlags;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl MountPropagationFlags {
+    const PRIVATE: Self = Self;
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[derive(Clone, Copy)]
+struct UnmountFlags;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl UnmountFlags {
+    const DETACH: Self = Self;
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount<P, Q>(
+    _source: P,
+    _target: Q,
+    _fstype: &str,
+    _flags: MountFlags,
+    _data: Option<&CStr>,
+) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    bail!("mount is only supported on linux/android")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount_bind<P, Q>(_source: P, _target: Q) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    bail!("bind mount is only supported on linux/android")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount_change<P>(_target: P, _flags: MountPropagationFlags) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    bail!("mount propagation changes are only supported on linux/android")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount_move<P, Q>(_source: P, _target: Q) -> Result<()>
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    bail!("mount move is only supported on linux/android")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn mount_remount<P>(_target: P, _flags: MountFlags, _data: &str) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    bail!("mount remount is only supported on linux/android")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn unmount<P>(_target: P, _flags: UnmountFlags) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    bail!("unmount is only supported on linux/android")
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use crate::mount::umount_mgr::send_umountable;
 use crate::{
+    core::runtime_state::MountStatistics,
     mount::{
         magic_mount::utils::{clone_symlink, collect_module_files, mount_mirror},
         node::{Node, NodeFileType},
@@ -88,29 +190,8 @@ fn wrap_with_module_context(err: anyhow::Error, node: &Node) -> anyhow::Error {
 }
 
 #[derive(Debug, Default)]
-struct MountStats {
-    mounted_files: u32,
-    ignored_files: u32,
-    mounted_symlinks: u32,
-}
-
-impl MountStats {
-    fn record_file(&mut self) {
-        self.mounted_files += 1;
-    }
-
-    fn record_ignored(&mut self) {
-        self.ignored_files += 1;
-    }
-
-    fn record_symlink(&mut self) {
-        self.mounted_symlinks += 1;
-    }
-}
-
-#[derive(Debug, Default)]
 struct MountContext {
-    stats: MountStats,
+    stats: MountStatistics,
 }
 
 struct MagicMount {
@@ -276,6 +357,7 @@ impl MagicMount {
                     self.work_dir_path.display(),
                 )
             })?;
+            context.stats.record_tmpfs();
         }
 
         if self.path.exists() && !self.node.replace {
@@ -321,6 +403,7 @@ impl MagicMount {
                     name,
                     e
                 );
+                context.stats.record_failed();
             }
         }
 
@@ -367,6 +450,7 @@ impl MagicMount {
             if self.umount {
                 let _ = send_umountable(&self.path);
             }
+            context.stats.record_dir();
         }
         Ok(())
     }
@@ -417,6 +501,7 @@ impl MagicMount {
                     name,
                     e
                 );
+                context.stats.record_failed();
             }
         }
 
@@ -432,7 +517,7 @@ pub fn magic_mount<P>(
     need_id: HashSet<String>,
     #[cfg(any(target_os = "linux", target_os = "android"))] umount: bool,
     #[cfg(not(any(target_os = "linux", target_os = "android")))] _umount: bool,
-) -> Result<()>
+) -> Result<MountStatistics>
 where
     P: AsRef<Path>,
 {
@@ -473,14 +558,14 @@ where
             info,
             "magic",
             "complete: mounted_files={}, mounted_symlinks={}, ignored_files={}",
-            context.stats.mounted_files,
-            context.stats.mounted_symlinks,
-            context.stats.ignored_files
+            context.stats.files_mounted,
+            context.stats.symlinks_created,
+            context.stats.ignored_entries
         );
 
-        ret
+        ret.map(|()| context.stats)
     } else {
         crate::scoped_log!(info, "magic", "skip: reason=no_modules_to_mount");
-        Ok(())
+        Ok(context.stats)
     }
 }

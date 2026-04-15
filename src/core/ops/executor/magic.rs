@@ -5,13 +5,13 @@ use std::{collections::HashSet, path::Path};
 
 use anyhow::Result;
 
-use crate::{conf::config, mount::magic_mount};
+use crate::{conf::config, core::runtime_state::MountStatistics, mount::magic_mount};
 
 pub(super) fn mount_magic(
     ids: &HashSet<String>,
     config: &config::Config,
     tempdir: &Path,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, MountStatistics)> {
     let magic_ws_path = tempdir.join("magic_workspace");
 
     crate::scoped_log!(
@@ -25,7 +25,7 @@ pub(super) fn mount_magic(
         std::fs::create_dir_all(&magic_ws_path)?;
     }
 
-    magic_mount::magic_mount(
+    let stats = magic_mount::magic_mount(
         &magic_ws_path,
         tempdir,
         &config.mountsource,
@@ -41,5 +41,5 @@ pub(super) fn mount_magic(
         ids.len()
     );
 
-    Ok(ids.iter().cloned().collect())
+    Ok((ids.iter().cloned().collect(), stats))
 }

@@ -11,11 +11,14 @@ use std::{
 
 use anyhow::Result;
 use backends::TmpfsBackend;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::mount::{MountPropagationFlags, UnmountFlags, mount_change, unmount as umount};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use crate::mount::umount_mgr::send_umountable;
-use crate::{core::backend::StorageBackend, defs, sys::mount::is_mounted};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::sys::mount::is_mounted;
+use crate::{core::backend::StorageBackend, defs};
 
 pub struct StorageHandle {
     pub backend: Box<dyn StorageBackend>,
@@ -48,9 +51,28 @@ pub fn setup(
     mount_source: &str,
     disable_umount: bool,
 ) -> Result<StorageHandle> {
+    let source_paths = vec![moduledir.to_path_buf()];
     let img_path = PathBuf::from(defs::MODULES_IMG_FILE);
 
-    reset_image_files()?;
+    setup_with_sources(
+        mnt_base,
+        &source_paths,
+        force_ext4,
+        mount_source,
+        disable_umount,
+        &img_path,
+    )
+}
+
+pub fn setup_with_sources(
+    mnt_base: &Path,
+    source_paths: &[PathBuf],
+    force_ext4: bool,
+    mount_source: &str,
+    disable_umount: bool,
+    img_path: &Path,
+) -> Result<StorageHandle> {
+    reset_image_files(img_path)?;
     detach_existing_mount(mnt_base);
 
     if !force_ext4 && try_setup_tmpfs(mnt_base, mount_source)? {
@@ -59,26 +81,34 @@ pub fn setup(
         return Ok(StorageHandle::new(TmpfsBackend::new(mnt_base)));
     }
 
-    let handle = ext4::setup_ext4_image(mnt_base, &img_path, moduledir)?;
+    let handle = ext4::setup_ext4_image(mnt_base, img_path, source_paths)?;
     finalize_mount_setup(mnt_base, disable_umount);
 
     Ok(StorageHandle::new(handle))
 }
 
-fn reset_image_files() -> Result<()> {
-    for path in glob::glob(&format!("{}*", defs::MODULES_IMG_FILE))?.flatten() {
+fn reset_image_files(img_path: &Path) -> Result<()> {
+    let pattern = format!("{}*", img_path.display());
+    for path in glob::glob(&pattern)?.flatten() {
         let _ = fs::remove_file(path);
     }
     Ok(())
 }
 
 fn detach_existing_mount(mnt_base: &Path) {
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let _ = mnt_base;
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if is_mounted(mnt_base) {
         let _ = umount(mnt_base, UnmountFlags::DETACH);
     }
 }
 
 fn finalize_mount_setup(path: &Path, disable_umount: bool) {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let _ = mount_change(path, MountPropagationFlags::PRIVATE);
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -87,7 +117,7 @@ fn finalize_mount_setup(path: &Path, disable_umount: bool) {
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    let _ = disable_umount;
+    let _ = (path, disable_umount);
 }
 
 fn try_setup_tmpfs(target: &Path, mount_source: &str) -> Result<bool> {
@@ -101,6 +131,7 @@ fn try_setup_tmpfs(target: &Path, mount_source: &str) -> Result<bool> {
                     "tmpfs fallback: path={}, reason=overlay_xattr_unsupported",
                     target.display()
                 );
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 let _ = umount(target, UnmountFlags::DETACH);
             }
             Err(err) => {
@@ -111,6 +142,7 @@ fn try_setup_tmpfs(target: &Path, mount_source: &str) -> Result<bool> {
                     target.display(),
                     err
                 );
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 let _ = umount(target, UnmountFlags::DETACH);
             }
         },

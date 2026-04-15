@@ -1,6 +1,7 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+pub mod api;
 pub mod backend;
 pub mod cli_commands;
 pub mod controller;
@@ -13,5 +14,6 @@ pub mod runtime_finalization;
 pub mod runtime_state;
 pub mod startup;
 pub mod storage;
+pub mod user_hide_rules;
 
 pub use controller::MountController;

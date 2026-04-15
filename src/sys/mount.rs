@@ -9,6 +9,7 @@ use procfs::process::Process;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::mount::{MountFlags, mount};
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use crate::sys::fs::ensure_dir_exists;
 
 pub fn detect_mount_source() -> String {
@@ -21,6 +22,7 @@ pub fn detect_mount_source() -> String {
     "APatch".to_string()
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn is_mounted<P: AsRef<Path>>(path: P) -> bool {
     let Some(path_str) = path.as_ref().to_str() else {
         return false;

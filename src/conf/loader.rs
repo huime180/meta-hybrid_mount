@@ -3,20 +3,11 @@
 
 use anyhow::{Context, Result};
 
-use crate::{
-    conf::{cli::Cli, config::Config},
-    defs,
-};
+use crate::conf::{cli::Cli, config::Config};
 
-#[derive(Clone, Copy, Debug)]
-pub enum LoadPolicy {
-    FallbackToDefault,
-    ErrorOnInvalidDefault,
-}
-
-pub fn load_config(cli: &Cli, policy: LoadPolicy) -> Result<Config> {
+pub fn load_config(cli: &Cli) -> Result<Config> {
     if let Some(config_path) = &cli.config {
-        return Config::from_file(config_path).with_context(|| {
+        return Config::load_optional_from_file(config_path).with_context(|| {
             format!(
                 "Failed to load config from custom path: {}",
                 config_path.display()
@@ -33,29 +24,16 @@ pub fn load_config(cli: &Cli, policy: LoadPolicy) -> Result<Config> {
                 .map(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
                 .unwrap_or(false);
 
-            match policy {
-                LoadPolicy::FallbackToDefault => {
-                    if !is_not_found {
-                        crate::scoped_log!(
-                            warn,
-                            "config",
-                            "load_default failed, fallback=defaults: {:#}",
-                            e
-                        );
-                    }
-                    Ok(Config::default())
-                }
-                LoadPolicy::ErrorOnInvalidDefault => {
-                    if is_not_found {
-                        Ok(Config::default())
-                    } else {
-                        Err(e).context(format!(
-                            "Failed to load default config from {}",
-                            defs::CONFIG_FILE
-                        ))
-                    }
-                }
+            if !is_not_found {
+                crate::scoped_log!(
+                    warn,
+                    "config",
+                    "load_default failed, fallback=defaults: {:#}",
+                    e
+                );
             }
+
+            Ok(Config::default())
         }
     }
 }

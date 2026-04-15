@@ -1,9 +1,10 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::path::Path;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::{
     collections::HashSet,
-    path::Path,
     sync::{LazyLock, Mutex},
 };
 
@@ -15,6 +16,7 @@ use rustix::path::Arg;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub static LIST: LazyLock<Mutex<TryUmount>> = LazyLock::new(|| Mutex::new(TryUmount::new()));
+#[cfg(any(target_os = "linux", target_os = "android"))]
 static HISTORY: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 pub fn send_umountable<P>(target: P) -> Result<()>
@@ -24,7 +26,7 @@ where
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = target;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -47,27 +49,20 @@ where
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn commit() -> Result<()> {
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
+    if !crate::utils::KSU.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
+    let mut list = LIST
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to lock umount list"))?;
 
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        if !crate::utils::KSU.load(std::sync::atomic::Ordering::Relaxed) {
-            return Ok(());
-        }
-        let mut list = LIST
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to lock umount list"))?;
-
-        list.format_msg(|p| format!("{p:?} umount successful "));
-        list.flags(TryUmountFlags::MNT_DETACH);
-        if let Err(e2) = list.umount() {
-            crate::scoped_log!(warn, "umount", "commit failed: {:#}", e2);
-        }
-
-        Ok(())
+    list.format_msg(|p| format!("{p:?} umount successful "));
+    list.flags(TryUmountFlags::MNT_DETACH);
+    if let Err(e2) = list.umount() {
+        crate::scoped_log!(warn, "umount", "commit failed: {:#}", e2);
     }
+
+    Ok(())
 }

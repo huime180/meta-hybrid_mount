@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod fallback;
+mod hymofs;
 mod magic;
 mod overlay;
 
@@ -14,21 +15,26 @@ use crate::mount::umount_mgr;
 use crate::{
     conf::config,
     core::{
+        inventory::Module,
         ops::planner::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
+        runtime_state::MountStatistics,
     },
 };
 
 pub struct ExecutionResult {
     pub overlay_module_ids: Vec<String>,
     pub magic_module_ids: Vec<String>,
+    pub hymofs_module_ids: Vec<String>,
+    pub mount_stats: MountStatistics,
 }
 
 pub struct Executor;
 
 impl Executor {
     pub fn execute<P>(
-        plan: &MountPlan,
+        plan: &mut MountPlan,
+        modules: &[Module],
         config: &config::Config,
         tempdir: P,
     ) -> Result<ExecutionResult>
@@ -38,12 +44,40 @@ impl Executor {
         crate::scoped_log!(
             info,
             "executor",
-            "start: overlay_ops={}, preselected_magic_modules={}",
+            "start: overlay_ops={}, preselected_magic_modules={}, preselected_hymofs_modules={}",
             plan.overlay_ops.len(),
-            plan.magic_module_ids.len()
+            plan.magic_module_ids.len(),
+            plan.hymofs_module_ids.len()
         );
         let mut final_magic_ids: HashSet<String> = plan.magic_module_ids.iter().cloned().collect();
         let mut final_overlay_ids: HashSet<String> = HashSet::new();
+        let planned_hymofs_ids = plan.hymofs_module_ids.clone();
+        let mut mount_stats = MountStatistics::default();
+
+        let hymofs_available = if config.hymofs.enabled {
+            hymofs::reset_runtime(config).map_err(|err| {
+                ModuleStageFailure::new(
+                    FailureStage::Execute,
+                    planned_hymofs_ids.clone(),
+                    anyhow::anyhow!("Failed to reset HymoFS runtime: {:#}", err),
+                )
+            })?
+        } else {
+            crate::scoped_log!(
+                debug,
+                "executor",
+                "hymofs disabled: skip_runtime_reset=true"
+            );
+            false
+        };
+        if !hymofs_available && !planned_hymofs_ids.is_empty() {
+            return Err(ModuleStageFailure::new(
+                FailureStage::Execute,
+                planned_hymofs_ids.clone(),
+                anyhow::anyhow!("HymoFS became unavailable before execution"),
+            )
+            .into());
+        }
 
         if Self::is_supported()? {
             crate::scoped_log!(info, "executor", "overlayfs: supported=true");
@@ -66,6 +100,7 @@ impl Executor {
                             ids.len()
                         );
                         final_overlay_ids.extend(ids);
+                        mount_stats.record_overlay_mount();
                     }
                     Err(err) => {
                         let involved_modules = fallback::collect_involved_modules(op);
@@ -93,6 +128,7 @@ impl Executor {
                                     op.target,
                                     involved_modules.join(", ")
                                 );
+                                mount_stats.record_failed();
                                 final_magic_ids.extend(involved_modules);
                                 continue;
                             }
@@ -140,6 +176,11 @@ impl Executor {
             );
         }
 
+        plan.hymofs_add_rules.clear();
+        plan.hymofs_merge_rules.clear();
+        plan.hymofs_hide_rules.clear();
+        let final_hymofs_ids = plan.hymofs_module_ids.clone();
+
         let mut magic_need_list: Vec<String> = final_magic_ids.iter().cloned().collect();
         magic_need_list.sort();
 
@@ -151,8 +192,8 @@ impl Executor {
                 "magic apply: modules={}",
                 magic_need_list.join(", ")
             );
-            let mounted_ids = magic::mount_magic(&magic_need_ids, config, tempdir.as_ref())
-                .map_err(|err| {
+            let (mounted_ids, magic_stats) =
+                magic::mount_magic(&magic_need_ids, config, tempdir.as_ref()).map_err(|err| {
                     let failed_module_ids =
                         fallback::resolve_magic_failure_modules(&err, &magic_need_list);
                     ModuleStageFailure::new(
@@ -165,12 +206,30 @@ impl Executor {
                         ),
                     )
                 })?;
+            mount_stats.merge(&magic_stats);
             final_magic_ids.retain(|id| mounted_ids.contains(id));
             crate::scoped_log!(
                 info,
                 "executor",
                 "magic complete: mounted_modules={}",
                 mounted_ids.len()
+            );
+        }
+
+        if config.hymofs.enabled {
+            if let Err(err) = hymofs::apply(plan, modules, config) {
+                return Err(ModuleStageFailure::new(
+                    FailureStage::Execute,
+                    final_hymofs_ids.clone(),
+                    anyhow::anyhow!("Failed to apply HymoFS late rules: {:#}", err),
+                )
+                .into());
+            }
+        } else {
+            crate::scoped_log!(
+                debug,
+                "executor",
+                "hymofs disabled: skip_runtime_apply=true"
             );
         }
 
@@ -188,14 +247,17 @@ impl Executor {
         crate::scoped_log!(
             info,
             "executor",
-            "complete: overlay_modules={}, magic_modules={}",
+            "complete: overlay_modules={}, magic_modules={}, hymofs_modules={}",
             result_overlay.len(),
-            result_magic.len()
+            result_magic.len(),
+            final_hymofs_ids.len()
         );
 
         Ok(ExecutionResult {
             overlay_module_ids: result_overlay,
             magic_module_ids: result_magic,
+            hymofs_module_ids: final_hymofs_ids,
+            mount_stats,
         })
     }
 

@@ -68,6 +68,19 @@ pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> R
         mount_source
     );
 
+    if config.hymofs.enabled
+        && crate::sys::hymofs::can_operate(config.hymofs.ignore_protocol_mismatch)
+        && let Err(err) = crate::sys::hymofs::hide_overlay_xattrs(Path::new(&op.target))
+    {
+        crate::scoped_log!(
+            warn,
+            "executor:overlay",
+            "hide overlay xattrs failed: target={}, error={:#}",
+            op.target,
+            err
+        );
+    }
+
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if !config.disable_umount {
         let _ = umount_mgr::send_umountable(&op.target);

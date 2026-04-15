@@ -7,7 +7,12 @@ on:
   workflow_dispatch:
 
 jobs:
+  build-hymofs-lkm:
+    uses: ./.github/workflows/build-hymofs-lkm.yml
+    secrets: inherit
+
   release:
+    needs: build-hymofs-lkm
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,6 +23,13 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Download HymoFS LKM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: hymofs_lkm_artifacts
+          pattern: '*-hymofs-lkm'
+          merge-multiple: true
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
@@ -62,6 +74,7 @@ jobs:
           HYBRID_MOUNT_SIGN_KEY: ${{ secrets.SIGNING_KEY }}
           HYBRID_MOUNT_SIGN_CERT: ${{ secrets.SIGNING_CERT }}
           HYBRID_MOUNT_KP_DIR: /tmp/apatch-kpm
+          HYBRID_MOUNT_HYMOFS_LKM_DIR: ${{ github.workspace }}/hymofs_lkm_artifacts
           HYBRID_MOUNT_NOTIFY: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

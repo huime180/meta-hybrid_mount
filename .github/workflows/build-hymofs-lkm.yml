@@ -1,0 +1,39 @@
+name: Build LKM for HymoFS
+
+on:
+  workflow_call:
+    inputs:
+      full_archs:
+        description: "Reserved input; DDK workflow currently builds arm64 only"
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      full_archs:
+        description: "Reserved input; DDK workflow currently builds arm64 only"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-hymofs-lkm:
+    strategy:
+      fail-fast: false
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+        arch:
+          - arm64
+    uses: ./.github/workflows/hymofs-lkm.yml
+    secrets: inherit
+    with:
+      kmi: ${{ matrix.kmi }}
+      arch: ${{ matrix.arch }}
+      ddk_release: "20251104"

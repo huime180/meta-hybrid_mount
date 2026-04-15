@@ -5,11 +5,15 @@ use std::path::Path;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::{fs, io::Read, os::unix::ffi::OsStrExt};
 
-use anyhow::{Context, Result};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use anyhow::Context;
+use anyhow::Result;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use extattr::{Flags as XattrFlags, lgetxattr, llistxattr, lsetxattr};
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const SELINUX_XATTR: &str = "security.selinux";
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const OVERLAY_OPAQUE_XATTR: &str = "trusted.overlay.opaque";
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

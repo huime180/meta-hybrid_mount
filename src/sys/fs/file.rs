@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::fs::ioctl_ficlone;
 use walkdir::WalkDir;
 
@@ -23,12 +24,12 @@ pub struct SyncDirStats {
     pub opaque_dirs: Vec<PathBuf>,
 }
 
-fn is_builtin_partition_path(relative: &Path) -> bool {
+fn is_managed_partition_path(relative: &Path, managed_partitions: &[String]) -> bool {
     relative
         .components()
         .next()
         .and_then(|component| component.as_os_str().to_str())
-        .is_some_and(|name| defs::BUILTIN_PARTITIONS.contains(&name))
+        .is_some_and(|name| managed_partitions.iter().any(|item| item == name))
 }
 
 pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Result<()> {
@@ -54,6 +55,7 @@ pub fn reflink_or_copy(src: &Path, dest: &Path) -> Result<u64> {
     let src_file = File::open(src)?;
     let dest_file = File::create(dest)?;
 
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if ioctl_ficlone(&dest_file, &src_file).is_ok() {
         let metadata = src_file.metadata()?;
         let len = metadata.len();
@@ -81,6 +83,7 @@ fn native_cp_r(
     src: &Path,
     dst: &Path,
     relative: &Path,
+    managed_partitions: &[String],
     _repair: bool,
     visited: &mut HashSet<(u64, u64)>,
     stats: &mut SyncDirStats,
@@ -107,7 +110,7 @@ fn native_cp_r(
         let dev = metadata.dev();
         let ino = metadata.ino();
 
-        if !ft.is_dir() && is_builtin_partition_path(&next_relative) {
+        if !ft.is_dir() && is_managed_partition_path(&next_relative, managed_partitions) {
             stats.has_mount_content = true;
         }
 
@@ -119,6 +122,7 @@ fn native_cp_r(
                 &src_path,
                 &dst_path,
                 &next_relative,
+                managed_partitions,
                 _repair,
                 visited,
                 stats,
@@ -152,7 +156,12 @@ fn native_cp_r(
     Ok(())
 }
 
-pub fn sync_dir(src: &Path, dst: &Path, repair_context: bool) -> Result<SyncDirStats> {
+pub fn sync_dir(
+    src: &Path,
+    dst: &Path,
+    repair_context: bool,
+    managed_partitions: &[String],
+) -> Result<SyncDirStats> {
     if !src.exists() {
         return Ok(SyncDirStats::default());
     }
@@ -163,6 +172,7 @@ pub fn sync_dir(src: &Path, dst: &Path, repair_context: bool) -> Result<SyncDirS
         src,
         dst,
         Path::new(""),
+        managed_partitions,
         repair_context,
         &mut visited,
         &mut stats,
@@ -204,6 +214,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::sync_dir;
+    use crate::defs;
 
     #[test]
     fn sync_dir_reports_mount_content_and_replace_directories() {
@@ -216,7 +227,11 @@ mod tests {
         fs::write(src.join("system/bin/.replace"), b"1").expect("failed to write .replace");
         fs::write(src.join("module.prop"), b"name=demo").expect("failed to write module.prop");
 
-        let stats = sync_dir(&src, &dst, true).expect("sync_dir should succeed");
+        let managed = defs::BUILTIN_PARTITIONS
+            .iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>();
+        let stats = sync_dir(&src, &dst, true, &managed).expect("sync_dir should succeed");
 
         assert!(stats.has_mount_content);
         assert_eq!(stats.opaque_dirs, vec![dst.join("system/bin")]);
@@ -231,7 +246,11 @@ mod tests {
         fs::create_dir_all(&src).expect("failed to create src");
         fs::write(src.join("module.prop"), b"name=demo").expect("failed to write module.prop");
 
-        let stats = sync_dir(&src, &dst, true).expect("sync_dir should succeed");
+        let managed = defs::BUILTIN_PARTITIONS
+            .iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>();
+        let stats = sync_dir(&src, &dst, true, &managed).expect("sync_dir should succeed");
 
         assert!(!stats.has_mount_content);
         assert!(stats.opaque_dirs.is_empty());
