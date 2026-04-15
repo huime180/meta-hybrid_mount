@@ -5,6 +5,15 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+use super::{
+    common::{
+        effective_maps_spoof_enabled, effective_mount_hide_enabled, effective_statfs_spoof_enabled,
+        effective_stealth_enabled, feature_supported, has_uname_spoof_config, to_c_long, to_c_uint,
+        to_c_ulong,
+    },
+    compile::{CompiledRules, compile_rules, log_compiled_rule_summary},
+    status::{can_operate, hook_lines},
+};
 use crate::{
     conf::{config, schema},
     core::{inventory::Module, ops::planner::MountPlan, user_hide_rules},
@@ -14,16 +23,6 @@ use crate::{
         HYMO_FEATURE_MOUNT_HIDE, HYMO_FEATURE_STATFS_SPOOF, HYMO_FEATURE_UNAME_SPOOF, HymoMapsRule,
         HymoMountHideArg, HymoSpoofKstat, HymoSpoofUname, HymoStatfsSpoofArg,
     },
-};
-
-use super::{
-    common::{
-        effective_maps_spoof_enabled, effective_mount_hide_enabled, effective_statfs_spoof_enabled,
-        effective_stealth_enabled, feature_supported, has_uname_spoof_config, to_c_long, to_c_uint,
-        to_c_ulong,
-    },
-    compile::{CompiledRules, compile_rules, log_compiled_rule_summary},
-    status::{can_operate, hook_lines},
 };
 
 pub(super) fn mount_mapping_requested(plan: &MountPlan) -> bool {
