@@ -394,6 +394,10 @@ fn extract_module_id_from_source(source: &str, mirror_path: &Path) -> Option<Str
     None
 }
 
+// libc::statvfs field widths differ between Android/glibc (all u64) and macOS
+// (mixed u32/u64); silence the per-platform cast/conversion lints instead of
+// carrying target-gated code for a stat-calc helper.
+#[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
 fn statvfs_usage(path: &Path) -> Result<(u64, u64, u64, f64)> {
     let c_path = CString::new(path.as_os_str().as_bytes())
         .with_context(|| format!("invalid storage path {}", path.display()))?;
@@ -410,9 +414,14 @@ fn statvfs_usage(path: &Path) -> Result<(u64, u64, u64, f64)> {
     } else {
         stats.f_bsize
     };
-    let total_bytes = stats.f_blocks.saturating_mul(block_size);
-    let free_bytes = stats.f_bavail.saturating_mul(block_size);
-    let used_bytes = total_bytes.saturating_sub(stats.f_bfree.saturating_mul(block_size));
+    // statvfs field widths differ between glibc/bionic (u64) and macOS (u32);
+    // widen through u64::from to stay portable without tripping clippy's
+    // unnecessary_cast on the Android targets used in CI.
+    let block_size = u64::from(block_size);
+    let total_bytes = u64::from(stats.f_blocks).saturating_mul(block_size);
+    let free_bytes = u64::from(stats.f_bavail).saturating_mul(block_size);
+    let used_bytes =
+        total_bytes.saturating_sub(u64::from(stats.f_bfree).saturating_mul(block_size));
     let percent = if total_bytes > 0 {
         used_bytes as f64 * 100.0 / total_bytes as f64
     } else {

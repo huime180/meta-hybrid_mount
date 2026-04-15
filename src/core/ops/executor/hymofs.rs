@@ -1196,7 +1196,16 @@ mod tests {
 
     #[test]
     fn hymofs_runtime_requires_mapping_or_explicit_feature() {
-        let config = Config::default();
+        let mut config = Config::default();
+        // Config::default() enables stealth by default; clear every auxiliary
+        // feature so this test actually exercises the "no mapping, no feature"
+        // path rather than tripping on an unrelated default.
+        config.hymofs.enable_kernel_debug = false;
+        config.hymofs.enable_stealth = false;
+        config.hymofs.enable_hidexattr = false;
+        config.hymofs.enable_mount_hide = false;
+        config.hymofs.enable_maps_spoof = false;
+        config.hymofs.enable_statfs_spoof = false;
         let plan = MountPlan::default();
 
         assert!(!mount_mapping_requested(&plan));
