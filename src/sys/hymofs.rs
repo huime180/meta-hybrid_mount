@@ -446,6 +446,20 @@ impl HymoStatfsSpoofArg {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct HymoSpoofCmdlineCompat {
+    pub cmdline: [c_char; HYMO_FAKE_CMDLINE_SIZE],
+}
+
+impl From<&HymoSpoofCmdline> for HymoSpoofCmdlineCompat {
+    fn from(value: &HymoSpoofCmdline) -> Self {
+        Self {
+            cmdline: value.cmdline,
+        }
+    }
+}
+
 pub const HYMO_IOC_ADD_RULE: HymoIoctlRequest =
     ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 1);
 pub const HYMO_IOC_DEL_RULE: HymoIoctlRequest =
@@ -474,6 +488,8 @@ pub const HYMO_IOC_SET_UNAME: HymoIoctlRequest =
     ioctl::opcode::write::<HymoSpoofUname>(HYMO_IOC_MAGIC, 17);
 pub const HYMO_IOC_SET_CMDLINE: HymoIoctlRequest =
     ioctl::opcode::write::<HymoSpoofCmdline>(HYMO_IOC_MAGIC, 18);
+const HYMO_IOC_SET_CMDLINE_COMPAT: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSpoofCmdlineCompat>(HYMO_IOC_MAGIC, 18);
 pub const HYMO_IOC_GET_FEATURES: HymoIoctlRequest =
     ioctl::opcode::read::<c_int>(HYMO_IOC_MAGIC, 19);
 pub const HYMO_IOC_SET_ENABLED: HymoIoctlRequest =
@@ -1025,7 +1041,39 @@ pub fn set_uname_release_version(release: &str, version: &str) -> Result<()> {
 
 pub fn set_cmdline(cmdline: &HymoSpoofCmdline) -> Result<()> {
     let mut cmdline = *cmdline;
-    ioctl_with_arg("set_cmdline", HYMO_IOC_SET_CMDLINE, &mut cmdline)?;
+    let fd = unsafe { BorrowedFd::borrow_raw(fetch_anon_fd()?) };
+    let ioctl = HymoIoctlArg::new(HYMO_IOC_SET_CMDLINE, &mut cmdline);
+    match unsafe { ioctl::ioctl(fd, ioctl) } {
+        Ok(()) => {}
+        Err(err) if err.raw_os_error() == libc::EINVAL => {
+            let mut compat = HymoSpoofCmdlineCompat::from(&cmdline);
+            let compat_ioctl = HymoIoctlArg::new(HYMO_IOC_SET_CMDLINE_COMPAT, &mut compat);
+            match unsafe { ioctl::ioctl(fd, compat_ioctl) } {
+                Ok(()) => {}
+                Err(compat_err) => {
+                    let context = format!(
+                        "{}; compat_retry_opcode=0x{:x}, compat_errno={}",
+                        ioctl_error_context("set_cmdline", HYMO_IOC_SET_CMDLINE, err),
+                        HYMO_IOC_SET_CMDLINE_COMPAT as u64,
+                        compat_err.raw_os_error()
+                    );
+                    return Err(anyhow::Error::new(compat_err).context(context));
+                }
+            }
+            crate::scoped_log!(
+                warn,
+                "sys:hymofs",
+                "set_cmdline fell back to legacy ioctl layout: current=0x{:x}, compat=0x{:x}",
+                HYMO_IOC_SET_CMDLINE as u64,
+                HYMO_IOC_SET_CMDLINE_COMPAT as u64
+            );
+            return Ok(());
+        }
+        Err(err) => {
+            let context = ioctl_error_context("set_cmdline", HYMO_IOC_SET_CMDLINE, err);
+            return Err(anyhow::Error::new(err).context(context));
+        }
+    }
     ensure_kernel_err("HymoFS set_cmdline", cmdline.err)
 }
 

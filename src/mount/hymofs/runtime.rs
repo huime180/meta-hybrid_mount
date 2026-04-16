@@ -442,6 +442,33 @@ pub fn sync_runtime_config(config: &config::Config) -> Result<()> {
     Ok(())
 }
 
+pub fn sync_runtime_config_for_operation(config: &config::Config, operation: &str) -> Result<()> {
+    let features = get_features();
+    log_feature_summary(features);
+
+    match operation {
+        "set_mirror_path" => hymofs::set_mirror_path(&config.hymofs.mirror_path),
+        "set_debug" => hymofs::set_debug(config.hymofs.enable_kernel_debug),
+        "set_stealth" => hymofs::set_stealth(effective_stealth_enabled(config)),
+        "set_mount_hide" => sync_mount_hide_config(config, features),
+        "set_maps_spoof" | "add_maps_rule" | "clear_maps_rules" => {
+            sync_maps_spoof_config(config, features)
+        }
+        "set_statfs_spoof" => sync_statfs_spoof_config(config, features),
+        "set_uname" | "clear_uname" => sync_uname_config(config, features),
+        "set_cmdline" | "clear_cmdline" => sync_cmdline_config(config, features),
+        "set_hide_uids" | "clear_hide_uids" => hymofs::set_hide_uids(&config.hymofs.hide_uids),
+        "upsert_kstat_rule" => sync_kstat_rules(config, features),
+        "set_hidexattr" => {
+            hymofs::set_stealth(effective_stealth_enabled(config))?;
+            sync_mount_hide_config(config, features)?;
+            sync_maps_spoof_config(config, features)?;
+            sync_statfs_spoof_config(config, features)
+        }
+        _ => sync_runtime_config(config),
+    }
+}
+
 fn apply_spoof_settings(config: &config::Config, features: Option<i32>) -> Result<()> {
     let has_uname_config = has_uname_spoof_config(config);
     if feature_supported(features, HYMO_FEATURE_UNAME_SPOOF) && has_uname_config {

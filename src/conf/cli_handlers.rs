@@ -104,7 +104,7 @@ fn clear_pathbuf(path: &mut PathBuf) {
 
 fn apply_live_runtime_sync(config: &Config, description: &str) -> Result<bool> {
     apply_live_if_possible(config, description, || {
-        hymofs_mount::sync_runtime_config(config)
+        hymofs_mount::sync_runtime_config_for_operation(config, description)
     })
 }
 
