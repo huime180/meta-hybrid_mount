@@ -6,10 +6,12 @@ use std::{
     ffi::{CString, c_char, c_int, c_long, c_uint, c_ulong, c_void},
     fs,
     mem::size_of,
-    os::fd::BorrowedFd,
-    os::unix::{
-        ffi::OsStrExt,
-        fs::{FileTypeExt, MetadataExt},
+    os::{
+        fd::BorrowedFd,
+        unix::{
+            ffi::OsStrExt,
+            fs::{FileTypeExt, MetadataExt},
+        },
     },
     path::Path,
     sync::{LazyLock, Mutex},
