@@ -11,10 +11,8 @@ on:
       - 'webui'
       - 'webui/**'
       - 'xtask/**'
-      - 'kpm/**'
       - 'build.rs'
       - 'scripts/build-local.sh'
-      - '.github/actions/setup-build-env/**'
       - '.github/workflows/build-hymofs-lkm.yml'
       - '.github/workflows/hymofs-lkm.yml'
       - '.github/workflows/build.yml'
@@ -28,10 +26,8 @@ on:
       - 'webui'
       - 'webui/**'
       - 'xtask/**'
-      - 'kpm/**'
       - 'build.rs'
       - 'scripts/build-local.sh'
-      - '.github/actions/setup-build-env/**'
       - '.github/workflows/build-hymofs-lkm.yml'
       - '.github/workflows/hymofs-lkm.yml'
       - '.github/workflows/build.yml'
@@ -58,14 +54,61 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup Shared Build Environment
-        uses: ./.github/actions/setup-build-env
+      - name: Checkout KPM Sources
+        uses: actions/checkout@v6
+        with:
+          repository: Hybrid-Mount/nuke-kpm
+          path: nuke-kpm
+          fetch-depth: 1
+
+      - name: Download HymoFS LKM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: hymofs_lkm_artifacts
+          pattern: "*-hymofs-lkm"
+          merge-multiple: true
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
         with:
           ndk-version: r29
-          rust-targets: aarch64-linux-android
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-linux-android
+          components: rust-src, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: "10"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-multilib
+          cargo install cargo-ndk --locked
+
+      - name: Prepare APatch KPM Sources
+        run: |
+          git clone --depth 1 https://github.com/AndroidPatch/kpm.git /tmp/apatch-kpm
 
       - name: Build All
         env:
+          HYBRID_MOUNT_KPM_DIR: ${{ github.workspace }}/nuke-kpm
           HYBRID_MOUNT_KP_DIR: /tmp/apatch-kpm
           HYBRID_MOUNT_HYMOFS_LKM_DIR: ${{ github.workspace }}/hymofs_lkm_artifacts
           HYBRID_MOUNT_NOTIFY: ${{ github.event_name != 'pull_request' && '1' || '0' }}

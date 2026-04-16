@@ -62,8 +62,8 @@ Hybrid Mount 是面向 **KernelSU** 与 **APatch** 的挂载编排元模块。
 ```text
 .
 ├─ src/                 # 守护进程与运行时逻辑
-├─ kpm/                 # APatch KernelPatch 模块源码
 ├─ module/              # 模块脚本与打包资源
+├─ nuke-kpm/            # 可选：额外检出的 APatch KPM 源码仓库
 ├─ xtask/               # 构建/发布自动化入口
 ├─ Cargo.toml           # workspace 与主 crate 配置
 └─ README*.md           # 中英文文档
@@ -162,6 +162,7 @@ hybrid-mount [OPTIONS] [COMMAND]
 
 - 使用 `rust-toolchain.toml` 指定的 Rust 工具链
 - Android NDK（建议 r27+）
+- GPL-2.0-only 的 APatch KPM 模块源码仓库 `Hybrid-Mount/nuke-kpm`（通过 `HYBRID_MOUNT_KPM_DIR` 指定，或直接检出到 `./nuke-kpm`）
 - 用于构建 APatch KPM 的 `AndroidPatch/kpm` 工作树（通过 `HYBRID_MOUNT_KP_DIR` 或 `KP_DIR` 指定）
 - Node.js 20+（仅构建 WebUI 时需要）
 
@@ -181,9 +182,9 @@ cargo run -p xtask -- build --release --skip-webui
 ./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
 ```
 
-如果要产出可直接给 APatch 使用的发布包，请在执行 `xtask` 前导出 `HYBRID_MOUNT_KP_DIR`（或 `KP_DIR`）以及 Android NDK 路径。若希望强制重编 KPM，而不是复用已有产物，可再设置 `HYBRID_MOUNT_BUILD_KPM=1`。
+如果要产出可直接给 APatch 使用的发布包，请在执行 `xtask` 前先用 `HYBRID_MOUNT_KPM_DIR` 指向 `Hybrid-Mount/nuke-kpm` 检出目录，再导出 `HYBRID_MOUNT_KP_DIR`（或 `KP_DIR`）以及 Android NDK 路径。若希望强制重编 KPM，而不是复用已有产物，可再设置 `HYBRID_MOUNT_BUILD_KPM=1`。
 
-当 KPM 构建条件满足时，`xtask` 会额外构建 `kpm/nuke_ext4_sysfs.kpm` 并打进模块包。`release` 构建要求该产物存在；`debug` 构建在缺少 KPM 条件时会给出警告并继续。
+当 KPM 构建条件满足时，`xtask` 会从外部 KPM 源码仓库构建 `nuke_ext4_sysfs.kpm` 并打进模块包。`release` 构建要求该产物存在；`debug` 构建在缺少 KPM 条件时会给出警告并继续。
 
 产物输出到 `output/`。
 

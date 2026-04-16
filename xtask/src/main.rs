@@ -20,7 +20,8 @@ use zip::{CompressionMethod, write::FileOptions};
 mod zip_ext;
 use crate::zip_ext::zip_create_from_directory_with_options;
 
-const KPM_PROJECT_DIR: &str = "kpm";
+const KPM_ENV_DIR: &str = "HYBRID_MOUNT_KPM_DIR";
+const KPM_PROJECT_DIR_CANDIDATES: [&str; 2] = ["nuke-kpm", "kpm"];
 const KPM_MODULE_NAME: &str = "nuke_ext4_sysfs";
 const KPM_STAGE_NAME: &str = "nuke_ext4_sysfs.kpm";
 const HYMOFS_LKM_STAGE_DIR: &str = "hymofs_lkm";
@@ -305,18 +306,18 @@ fn resolve_notify_plan(
 }
 
 fn stage_kpm_assets(stage_dir: &Path, require_kpm: bool) -> Result<()> {
-    let kpm_project_dir = Path::new(KPM_PROJECT_DIR);
-    if !kpm_project_dir.exists() {
+    let Some(kpm_project_dir) = resolve_kpm_project_dir() else {
         if require_kpm {
             bail!(
-                "KPM project directory not found: {}",
-                kpm_project_dir.display()
+                "KPM project directory not found. Set {} or clone one of: {}",
+                KPM_ENV_DIR,
+                KPM_PROJECT_DIR_CANDIDATES.join(", ")
             );
         }
         return Ok(());
-    }
+    };
 
-    let artifact = ensure_kpm_artifact(kpm_project_dir, require_kpm)?;
+    let artifact = ensure_kpm_artifact(&kpm_project_dir, require_kpm)?;
     let Some(artifact) = artifact else {
         return Ok(());
     };
@@ -329,6 +330,19 @@ fn stage_kpm_assets(stage_dir: &Path, require_kpm: bool) -> Result<()> {
         &file::CopyOptions::new().overwrite(true),
     )?;
     Ok(())
+}
+
+fn resolve_kpm_project_dir() -> Option<PathBuf> {
+    if let Some(path) = env::var_os(KPM_ENV_DIR).map(PathBuf::from)
+        && path.is_dir()
+    {
+        return Some(path);
+    }
+
+    KPM_PROJECT_DIR_CANDIDATES
+        .iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_dir())
 }
 
 fn stage_hymofs_lkm_assets(stage_dir: &Path) -> Result<()> {
@@ -408,8 +422,9 @@ fn ensure_kpm_artifact(project_dir: &Path, require_kpm: bool) -> Result<Option<P
 
     if require_kpm {
         bail!(
-            "APatch KPM artifact is required for release builds. Set HYBRID_MOUNT_KP_DIR/KP_DIR \
-and Android NDK env vars, or prebuild {} under {}.",
+            "APatch KPM artifact is required for release builds. Set {} to the KPM source \
+repo, set HYBRID_MOUNT_KP_DIR/KP_DIR and Android NDK env vars, or prebuild {} under {}.",
+            KPM_ENV_DIR,
             KPM_STAGE_NAME,
             project_dir.display()
         );

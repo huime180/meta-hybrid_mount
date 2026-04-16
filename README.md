@@ -62,8 +62,8 @@ Key implementation modules:
 ```text
 .
 ├─ src/                 # daemon/runtime implementation
-├─ kpm/                 # APatch KernelPatch module source
 ├─ module/              # module scripts and packaging assets
+├─ nuke-kpm/            # optional checkout of the APatch KPM source repo
 ├─ xtask/               # build/release automation commands
 ├─ Cargo.toml           # workspace + runtime crate settings
 └─ README*.md           # user and developer docs
@@ -162,6 +162,7 @@ Prerequisites:
 
 - Rust toolchain from `rust-toolchain.toml`
 - Android NDK (recommended r27+)
+- `Hybrid-Mount/nuke-kpm` checkout for the GPL-2.0-only APatch KPM module source (`HYBRID_MOUNT_KPM_DIR`, or clone into `./nuke-kpm`)
 - `AndroidPatch/kpm` checkout for APatch KPM builds (`HYBRID_MOUNT_KP_DIR` or `KP_DIR`)
 - Node.js 20+ (only when building WebUI assets)
 
@@ -181,9 +182,9 @@ cargo run -p xtask -- build --release --skip-webui
 ./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
 ```
 
-For APatch-ready release packages, export `HYBRID_MOUNT_KP_DIR` (or `KP_DIR`) and an Android NDK path before invoking `xtask`. Set `HYBRID_MOUNT_BUILD_KPM=1` if you want to force a KPM rebuild instead of reusing an existing artifact.
+For APatch-ready release packages, export `HYBRID_MOUNT_KPM_DIR` to point at the `Hybrid-Mount/nuke-kpm` checkout, plus `HYBRID_MOUNT_KP_DIR` (or `KP_DIR`) and an Android NDK path before invoking `xtask`. Set `HYBRID_MOUNT_BUILD_KPM=1` if you want to force a KPM rebuild instead of reusing an existing artifact.
 
-If KPM build prerequisites are available, `xtask` also builds `kpm/nuke_ext4_sysfs.kpm` and stages it into the module zip. Release builds require that artifact; debug builds will warn and continue when KPM prerequisites are missing.
+If KPM build prerequisites are available, `xtask` also builds `nuke_ext4_sysfs.kpm` from the external KPM source repo and stages it into the module zip. Release builds require that artifact; debug builds will warn and continue when KPM prerequisites are missing.
 
 Artifacts are produced under `output/`.
 
