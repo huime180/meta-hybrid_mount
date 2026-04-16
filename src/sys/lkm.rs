@@ -351,7 +351,7 @@ fn load_module_via_ksud(ko_path: &Path, params: &str) -> Result<()> {
 
     for candidate in candidates {
         let mut cmd = Command::new(candidate);
-        cmd.arg("debug").arg("insmod").arg(ko_path);
+        cmd.arg("insmod").arg(ko_path);
         if !params.is_empty() {
             cmd.arg(params);
         }
@@ -362,7 +362,7 @@ fn load_module_via_ksud(ko_path: &Path, params: &str) -> Result<()> {
                 let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 let detail = if !stderr.is_empty() { stderr } else { stdout };
                 last_failure = Some(anyhow!(
-                    "{} debug insmod {} failed with status {}{}",
+                    "{} insmod {} failed with status {}{}",
                     candidate,
                     ko_path.display(),
                     output.status,
