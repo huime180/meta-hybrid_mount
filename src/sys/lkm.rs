@@ -6,7 +6,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::{LazyLock, Mutex},
+    sync::{LazyLock, Mutex, atomic::Ordering},
     thread,
     time::Duration,
 };
@@ -20,7 +20,7 @@ use anyhow::bail;
 use anyhow::{Result, anyhow};
 use walkdir::WalkDir;
 
-use crate::{conf::schema::HymoFsConfig, defs, sys::hymofs};
+use crate::{conf::schema::HymoFsConfig, defs, sys::hymofs, utils::KSU};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LkmStatus {
@@ -345,6 +345,44 @@ fn unload_module_via_syscall(_module_name: &str) -> Result<()> {
     bail!("kernel module unloading is only supported on linux/android")
 }
 
+fn load_module_via_ksud(ko_path: &Path, params: &str) -> Result<()> {
+    let candidates = ["/data/adb/ksud", "ksud"];
+    let mut last_failure = None;
+
+    for candidate in candidates {
+        let mut cmd = Command::new(candidate);
+        cmd.arg("debug").arg("insmod").arg(ko_path);
+        if !params.is_empty() {
+            cmd.arg(params);
+        }
+        match cmd.output() {
+            Ok(output) if output.status.success() => return Ok(()),
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let detail = if !stderr.is_empty() { stderr } else { stdout };
+                last_failure = Some(anyhow!(
+                    "{} debug insmod {} failed with status {}{}",
+                    candidate,
+                    ko_path.display(),
+                    output.status,
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {detail}")
+                    }
+                ));
+            }
+            Err(err) => {
+                last_failure = Some(anyhow!("failed to execute {}: {}", candidate, err));
+            }
+        }
+    }
+
+    Err(last_failure
+        .unwrap_or_else(|| anyhow!("ksud debug insmod failed for {}", ko_path.display())))
+}
+
 fn unload_module_via_rmmod(module_name: &str) -> Result<()> {
     let candidates = ["/system/bin/rmmod", "/sbin/rmmod", "rmmod"];
     let mut last_failure = None;
@@ -396,9 +434,25 @@ pub fn load(config: &HymoFsConfig) -> Result<()> {
     })?;
 
     let params = format!("hymo_syscall_nr={}", hymofs::HYMO_SYSCALL_NR);
-    load_module_via_finit(&ko_path, &params).inspect_err(|err| {
-        set_last_error(format!("{:#}", err));
-    })?;
+    if let Err(primary_err) = load_module_via_finit(&ko_path, &params) {
+        if KSU.load(Ordering::Relaxed) {
+            crate::scoped_log!(
+                warn,
+                "lkm",
+                "finit_module failed, retrying via ksud: file={}, error={:#}",
+                ko_path.display(),
+                primary_err
+            );
+            if let Err(fallback_err) = load_module_via_ksud(&ko_path, &params) {
+                let combined = anyhow!("{:#}; ksud fallback: {:#}", primary_err, fallback_err);
+                set_last_error(format!("{:#}", combined));
+                return Err(combined);
+            }
+        } else {
+            set_last_error(format!("{:#}", primary_err));
+            return Err(primary_err);
+        }
+    }
 
     hymofs::invalidate_status_cache();
     crate::scoped_log!(
