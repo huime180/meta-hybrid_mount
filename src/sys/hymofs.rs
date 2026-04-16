@@ -3,9 +3,10 @@
 #![allow(dead_code)]
 
 use std::{
-    ffi::{CString, c_char, c_int, c_long, c_uint, c_ulong},
+    ffi::{CString, c_char, c_int, c_long, c_uint, c_ulong, c_void},
     fs,
     mem::size_of,
+    os::fd::BorrowedFd,
     os::unix::{
         ffi::OsStrExt,
         fs::{FileTypeExt, MetadataExt},
@@ -17,6 +18,10 @@ use std::{
 use std::{thread, time::Duration};
 
 use anyhow::{Context, Result, anyhow, bail};
+use rustix::{
+    io::Errno,
+    ioctl::{self, Ioctl, IoctlOutput, Opcode},
+};
 use walkdir::WalkDir;
 
 pub const HYMO_MAGIC1: c_int = 0x4859_4D4F;
@@ -40,48 +45,9 @@ pub const HYMO_FEATURE_MOUNT_HIDE: c_int = 1 << 6;
 pub const HYMO_FEATURE_MAPS_SPOOF: c_int = 1 << 7;
 pub const HYMO_FEATURE_STATFS_SPOOF: c_int = 1 << 8;
 
-const IOC_NRBITS: u32 = 8;
-const IOC_TYPEBITS: u32 = 8;
-const IOC_SIZEBITS: u32 = 14;
-
-const IOC_NRSHIFT: u32 = 0;
-const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
-const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
-const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
-
-const IOC_NONE: u32 = 0;
-const IOC_WRITE: u32 = 1;
-const IOC_READ: u32 = 2;
-
 const HYMO_IOC_MAGIC: u8 = b'H';
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-type HymoIoctlRequest = libc::Ioctl;
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-type HymoIoctlRequest = c_ulong;
-
-const fn ioc(dir: u32, kind: u8, nr: u8, size: usize) -> HymoIoctlRequest {
-    ((dir << IOC_DIRSHIFT)
-        | ((kind as u32) << IOC_TYPESHIFT)
-        | ((nr as u32) << IOC_NRSHIFT)
-        | ((size as u32) << IOC_SIZESHIFT)) as HymoIoctlRequest
-}
-
-const fn io(kind: u8, nr: u8) -> HymoIoctlRequest {
-    ioc(IOC_NONE, kind, nr, 0)
-}
-
-const fn iow<T>(kind: u8, nr: u8) -> HymoIoctlRequest {
-    ioc(IOC_WRITE, kind, nr, size_of::<T>())
-}
-
-const fn ior<T>(kind: u8, nr: u8) -> HymoIoctlRequest {
-    ioc(IOC_READ, kind, nr, size_of::<T>())
-}
-
-const fn iowr<T>(kind: u8, nr: u8) -> HymoIoctlRequest {
-    ioc(IOC_READ | IOC_WRITE, kind, nr, size_of::<T>())
-}
+type HymoIoctlRequest = Opcode;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -478,33 +444,108 @@ impl HymoStatfsSpoofArg {
     }
 }
 
-pub const HYMO_IOC_ADD_RULE: HymoIoctlRequest = iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 1);
-pub const HYMO_IOC_DEL_RULE: HymoIoctlRequest = iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 2);
-pub const HYMO_IOC_HIDE_RULE: HymoIoctlRequest = iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 3);
-pub const HYMO_IOC_CLEAR_ALL: HymoIoctlRequest = io(HYMO_IOC_MAGIC, 5);
-pub const HYMO_IOC_GET_VERSION: HymoIoctlRequest = ior::<c_int>(HYMO_IOC_MAGIC, 6);
-pub const HYMO_IOC_LIST_RULES: HymoIoctlRequest = iowr::<HymoSyscallListArg>(HYMO_IOC_MAGIC, 7);
-pub const HYMO_IOC_SET_DEBUG: HymoIoctlRequest = iow::<c_int>(HYMO_IOC_MAGIC, 8);
-pub const HYMO_IOC_REORDER_MNT_ID: HymoIoctlRequest = io(HYMO_IOC_MAGIC, 9);
-pub const HYMO_IOC_SET_STEALTH: HymoIoctlRequest = iow::<c_int>(HYMO_IOC_MAGIC, 10);
+pub const HYMO_IOC_ADD_RULE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 1);
+pub const HYMO_IOC_DEL_RULE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 2);
+pub const HYMO_IOC_HIDE_RULE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 3);
+pub const HYMO_IOC_CLEAR_ALL: HymoIoctlRequest = ioctl::opcode::none(HYMO_IOC_MAGIC, 5);
+pub const HYMO_IOC_GET_VERSION: HymoIoctlRequest = ioctl::opcode::read::<c_int>(HYMO_IOC_MAGIC, 6);
+pub const HYMO_IOC_LIST_RULES: HymoIoctlRequest =
+    ioctl::opcode::read_write::<HymoSyscallListArg>(HYMO_IOC_MAGIC, 7);
+pub const HYMO_IOC_SET_DEBUG: HymoIoctlRequest = ioctl::opcode::write::<c_int>(HYMO_IOC_MAGIC, 8);
+pub const HYMO_IOC_REORDER_MNT_ID: HymoIoctlRequest = ioctl::opcode::none(HYMO_IOC_MAGIC, 9);
+pub const HYMO_IOC_SET_STEALTH: HymoIoctlRequest =
+    ioctl::opcode::write::<c_int>(HYMO_IOC_MAGIC, 10);
 pub const HYMO_IOC_HIDE_OVERLAY_XATTRS: HymoIoctlRequest =
-    iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 11);
-pub const HYMO_IOC_ADD_MERGE_RULE: HymoIoctlRequest = iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 12);
-pub const HYMO_IOC_SET_MIRROR_PATH: HymoIoctlRequest = iow::<HymoSyscallArg>(HYMO_IOC_MAGIC, 14);
-pub const HYMO_IOC_ADD_SPOOF_KSTAT: HymoIoctlRequest = iow::<HymoSpoofKstat>(HYMO_IOC_MAGIC, 15);
-pub const HYMO_IOC_UPDATE_SPOOF_KSTAT: HymoIoctlRequest = iow::<HymoSpoofKstat>(HYMO_IOC_MAGIC, 16);
-pub const HYMO_IOC_SET_UNAME: HymoIoctlRequest = iow::<HymoSpoofUname>(HYMO_IOC_MAGIC, 17);
-pub const HYMO_IOC_SET_CMDLINE: HymoIoctlRequest = iow::<HymoSpoofCmdline>(HYMO_IOC_MAGIC, 18);
-pub const HYMO_IOC_GET_FEATURES: HymoIoctlRequest = ior::<c_int>(HYMO_IOC_MAGIC, 19);
-pub const HYMO_IOC_SET_ENABLED: HymoIoctlRequest = iow::<c_int>(HYMO_IOC_MAGIC, 20);
-pub const HYMO_IOC_SET_HIDE_UIDS: HymoIoctlRequest = iow::<HymoUidListArg>(HYMO_IOC_MAGIC, 21);
-pub const HYMO_IOC_GET_HOOKS: HymoIoctlRequest = iowr::<HymoSyscallListArg>(HYMO_IOC_MAGIC, 22);
-pub const HYMO_IOC_ADD_MAPS_RULE: HymoIoctlRequest = iow::<HymoMapsRule>(HYMO_IOC_MAGIC, 23);
-pub const HYMO_IOC_CLEAR_MAPS_RULES: HymoIoctlRequest = io(HYMO_IOC_MAGIC, 24);
-pub const HYMO_IOC_SET_MOUNT_HIDE: HymoIoctlRequest = iow::<HymoMountHideArg>(HYMO_IOC_MAGIC, 25);
-pub const HYMO_IOC_SET_MAPS_SPOOF: HymoIoctlRequest = iow::<HymoMapsSpoofArg>(HYMO_IOC_MAGIC, 26);
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 11);
+pub const HYMO_IOC_ADD_MERGE_RULE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 12);
+pub const HYMO_IOC_SET_MIRROR_PATH: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSyscallArg>(HYMO_IOC_MAGIC, 14);
+pub const HYMO_IOC_ADD_SPOOF_KSTAT: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSpoofKstat>(HYMO_IOC_MAGIC, 15);
+pub const HYMO_IOC_UPDATE_SPOOF_KSTAT: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSpoofKstat>(HYMO_IOC_MAGIC, 16);
+pub const HYMO_IOC_SET_UNAME: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSpoofUname>(HYMO_IOC_MAGIC, 17);
+pub const HYMO_IOC_SET_CMDLINE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoSpoofCmdline>(HYMO_IOC_MAGIC, 18);
+pub const HYMO_IOC_GET_FEATURES: HymoIoctlRequest =
+    ioctl::opcode::read::<c_int>(HYMO_IOC_MAGIC, 19);
+pub const HYMO_IOC_SET_ENABLED: HymoIoctlRequest =
+    ioctl::opcode::write::<c_int>(HYMO_IOC_MAGIC, 20);
+pub const HYMO_IOC_SET_HIDE_UIDS: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoUidListArg>(HYMO_IOC_MAGIC, 21);
+pub const HYMO_IOC_GET_HOOKS: HymoIoctlRequest =
+    ioctl::opcode::read_write::<HymoSyscallListArg>(HYMO_IOC_MAGIC, 22);
+pub const HYMO_IOC_ADD_MAPS_RULE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoMapsRule>(HYMO_IOC_MAGIC, 23);
+pub const HYMO_IOC_CLEAR_MAPS_RULES: HymoIoctlRequest = ioctl::opcode::none(HYMO_IOC_MAGIC, 24);
+pub const HYMO_IOC_SET_MOUNT_HIDE: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoMountHideArg>(HYMO_IOC_MAGIC, 25);
+pub const HYMO_IOC_SET_MAPS_SPOOF: HymoIoctlRequest =
+    ioctl::opcode::write::<HymoMapsSpoofArg>(HYMO_IOC_MAGIC, 26);
 pub const HYMO_IOC_SET_STATFS_SPOOF: HymoIoctlRequest =
-    iow::<HymoStatfsSpoofArg>(HYMO_IOC_MAGIC, 27);
+    ioctl::opcode::write::<HymoStatfsSpoofArg>(HYMO_IOC_MAGIC, 27);
+
+struct HymoIoctlNoArg {
+    request: HymoIoctlRequest,
+}
+
+impl HymoIoctlNoArg {
+    const fn new(request: HymoIoctlRequest) -> Self {
+        Self { request }
+    }
+}
+
+unsafe impl Ioctl for HymoIoctlNoArg {
+    type Output = ();
+
+    const IS_MUTATING: bool = false;
+
+    fn opcode(&self) -> Opcode {
+        self.request
+    }
+
+    fn as_ptr(&mut self) -> *mut c_void {
+        std::ptr::null_mut()
+    }
+
+    unsafe fn output_from_ptr(_: IoctlOutput, _: *mut c_void) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
+
+struct HymoIoctlArg<'a, T> {
+    request: HymoIoctlRequest,
+    arg: &'a mut T,
+}
+
+impl<'a, T> HymoIoctlArg<'a, T> {
+    fn new(request: HymoIoctlRequest, arg: &'a mut T) -> Self {
+        Self { request, arg }
+    }
+}
+
+unsafe impl<T> Ioctl for HymoIoctlArg<'_, T> {
+    type Output = ();
+
+    const IS_MUTATING: bool = true;
+
+    fn opcode(&self) -> Opcode {
+        self.request
+    }
+
+    fn as_ptr(&mut self) -> *mut c_void {
+        (self.arg as *mut T).cast()
+    }
+
+    unsafe fn output_from_ptr(_: IoctlOutput, _: *mut c_void) -> rustix::io::Result<Self::Output> {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HymoFsStatus {
@@ -688,27 +729,47 @@ pub fn get_anon_fd() -> Result<c_int> {
     fetch_anon_fd()
 }
 
-fn ioctl_noarg(request: HymoIoctlRequest) -> Result<()> {
-    let fd = fetch_anon_fd()?;
-    let ret = unsafe { libc::ioctl(fd, request) };
-    if ret < 0 {
-        return Err(std::io::Error::last_os_error()).context("HymoFS ioctl failed");
-    }
-    Ok(())
+fn ioctl_error_context(name: &str, request: HymoIoctlRequest, err: Errno) -> String {
+    let hint = match err.raw_os_error() {
+        libc::EINVAL => "invalid payload or protocol mismatch",
+        libc::EOPNOTSUPP | libc::ENOTTY => "unsupported by the current kernel/module build",
+        _ => "kernel call failed",
+    };
+
+    format!(
+        "HymoFS ioctl failed: name={name}, opcode=0x{:x}, errno={} ({hint})",
+        request as u64,
+        err.raw_os_error()
+    )
 }
 
-fn ioctl_with_arg<T>(request: HymoIoctlRequest, arg: &mut T) -> Result<()> {
-    let fd = fetch_anon_fd()?;
-    let ret = unsafe { libc::ioctl(fd, request, arg as *mut T) };
-    if ret < 0 {
-        return Err(std::io::Error::last_os_error()).context("HymoFS ioctl failed");
+fn ioctl_noarg(name: &str, request: HymoIoctlRequest) -> Result<()> {
+    let fd = unsafe { BorrowedFd::borrow_raw(fetch_anon_fd()?) };
+    let ioctl = HymoIoctlNoArg::new(request);
+    match unsafe { ioctl::ioctl(fd, ioctl) } {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let context = ioctl_error_context(name, request, err);
+            Err(anyhow::Error::new(err).context(context))
+        }
     }
-    Ok(())
 }
 
-fn ioctl_with_bool(request: HymoIoctlRequest, value: bool) -> Result<()> {
+fn ioctl_with_arg<T>(name: &str, request: HymoIoctlRequest, arg: &mut T) -> Result<()> {
+    let fd = unsafe { BorrowedFd::borrow_raw(fetch_anon_fd()?) };
+    let ioctl = HymoIoctlArg::new(request, arg);
+    match unsafe { ioctl::ioctl(fd, ioctl) } {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let context = ioctl_error_context(name, request, err);
+            Err(anyhow::Error::new(err).context(context))
+        }
+    }
+}
+
+fn ioctl_with_bool(name: &str, request: HymoIoctlRequest, value: bool) -> Result<()> {
     let mut raw: c_int = if value { 1 } else { 0 };
-    ioctl_with_arg(request, &mut raw)
+    ioctl_with_arg(name, request, &mut raw)
 }
 
 fn ensure_kernel_err(context: &str, kernel_err: c_int) -> Result<()> {
@@ -724,7 +785,7 @@ fn list_ioctl(request: HymoIoctlRequest, capacity: usize, description: &str) -> 
         buf: buf.as_mut_ptr() as *mut c_char,
         size: buf.len(),
     };
-    ioctl_with_arg(request, &mut arg)
+    ioctl_with_arg(description, request, &mut arg)
         .with_context(|| format!("failed to query HymoFS {description}"))?;
 
     let len = buf.iter().position(|byte| *byte == 0).unwrap_or(buf.len());
@@ -733,7 +794,7 @@ fn list_ioctl(request: HymoIoctlRequest, capacity: usize, description: &str) -> 
 
 pub fn get_protocol_version() -> Result<c_int> {
     let mut version = 0;
-    ioctl_with_arg(HYMO_IOC_GET_VERSION, &mut version)?;
+    ioctl_with_arg("get_version", HYMO_IOC_GET_VERSION, &mut version)?;
     Ok(version)
 }
 
@@ -776,33 +837,33 @@ pub fn can_operate(ignore_protocol_mismatch: bool) -> bool {
 }
 
 pub fn clear_rules() -> Result<()> {
-    ioctl_noarg(HYMO_IOC_CLEAR_ALL)
+    ioctl_noarg("clear_rules", HYMO_IOC_CLEAR_ALL)
 }
 
 pub fn add_rule(virtual_path: &Path, backing_path: &Path, file_type: c_int) -> Result<()> {
     let src = cstring_from_path(virtual_path)?;
     let target = cstring_from_path(backing_path)?;
     let mut arg = HymoSyscallArg::new(&src, Some(&target), file_type);
-    ioctl_with_arg(HYMO_IOC_ADD_RULE, &mut arg)
+    ioctl_with_arg("add_rule", HYMO_IOC_ADD_RULE, &mut arg)
 }
 
 pub fn add_merge_rule(virtual_path: &Path, backing_path: &Path) -> Result<()> {
     let src = cstring_from_path(virtual_path)?;
     let target = cstring_from_path(backing_path)?;
     let mut arg = HymoSyscallArg::new(&src, Some(&target), 0);
-    ioctl_with_arg(HYMO_IOC_ADD_MERGE_RULE, &mut arg)
+    ioctl_with_arg("add_merge_rule", HYMO_IOC_ADD_MERGE_RULE, &mut arg)
 }
 
 pub fn delete_rule(virtual_path: &Path) -> Result<()> {
     let src = cstring_from_path(virtual_path)?;
     let mut arg = HymoSyscallArg::new(&src, None, 0);
-    ioctl_with_arg(HYMO_IOC_DEL_RULE, &mut arg)
+    ioctl_with_arg("delete_rule", HYMO_IOC_DEL_RULE, &mut arg)
 }
 
 pub fn hide_path(virtual_path: &Path) -> Result<()> {
     let src = cstring_from_path(virtual_path)?;
     let mut arg = HymoSyscallArg::new(&src, None, 0);
-    ioctl_with_arg(HYMO_IOC_HIDE_RULE, &mut arg)
+    ioctl_with_arg("hide_path", HYMO_IOC_HIDE_RULE, &mut arg)
 }
 
 fn helper_rule_dtype(path: &Path) -> Result<Option<c_int>> {
@@ -922,36 +983,36 @@ pub fn remove_rules_from_directory(target_base: &Path, module_dir: &Path) -> Res
 pub fn set_mirror_path(path: &Path) -> Result<()> {
     let src = cstring_from_path(path)?;
     let mut arg = HymoSyscallArg::new(&src, None, 0);
-    ioctl_with_arg(HYMO_IOC_SET_MIRROR_PATH, &mut arg)
+    ioctl_with_arg("set_mirror_path", HYMO_IOC_SET_MIRROR_PATH, &mut arg)
 }
 
 pub fn set_debug(enable: bool) -> Result<()> {
-    ioctl_with_bool(HYMO_IOC_SET_DEBUG, enable)
+    ioctl_with_bool("set_debug", HYMO_IOC_SET_DEBUG, enable)
 }
 
 pub fn set_stealth(enable: bool) -> Result<()> {
-    ioctl_with_bool(HYMO_IOC_SET_STEALTH, enable)
+    ioctl_with_bool("set_stealth", HYMO_IOC_SET_STEALTH, enable)
 }
 
 pub fn set_enabled(enable: bool) -> Result<()> {
-    ioctl_with_bool(HYMO_IOC_SET_ENABLED, enable)
+    ioctl_with_bool("set_enabled", HYMO_IOC_SET_ENABLED, enable)
 }
 
 pub fn add_spoof_kstat(rule: &HymoSpoofKstat) -> Result<()> {
     let mut rule = *rule;
-    ioctl_with_arg(HYMO_IOC_ADD_SPOOF_KSTAT, &mut rule)?;
+    ioctl_with_arg("add_spoof_kstat", HYMO_IOC_ADD_SPOOF_KSTAT, &mut rule)?;
     ensure_kernel_err("HymoFS add_spoof_kstat", rule.err)
 }
 
 pub fn update_spoof_kstat(rule: &HymoSpoofKstat) -> Result<()> {
     let mut rule = *rule;
-    ioctl_with_arg(HYMO_IOC_UPDATE_SPOOF_KSTAT, &mut rule)?;
+    ioctl_with_arg("update_spoof_kstat", HYMO_IOC_UPDATE_SPOOF_KSTAT, &mut rule)?;
     ensure_kernel_err("HymoFS update_spoof_kstat", rule.err)
 }
 
 pub fn set_uname(uname: &HymoSpoofUname) -> Result<()> {
     let mut uname = *uname;
-    ioctl_with_arg(HYMO_IOC_SET_UNAME, &mut uname)?;
+    ioctl_with_arg("set_uname", HYMO_IOC_SET_UNAME, &mut uname)?;
     ensure_kernel_err("HymoFS set_uname", uname.err)
 }
 
@@ -962,7 +1023,7 @@ pub fn set_uname_release_version(release: &str, version: &str) -> Result<()> {
 
 pub fn set_cmdline(cmdline: &HymoSpoofCmdline) -> Result<()> {
     let mut cmdline = *cmdline;
-    ioctl_with_arg(HYMO_IOC_SET_CMDLINE, &mut cmdline)?;
+    ioctl_with_arg("set_cmdline", HYMO_IOC_SET_CMDLINE, &mut cmdline)?;
     ensure_kernel_err("HymoFS set_cmdline", cmdline.err)
 }
 
@@ -973,22 +1034,26 @@ pub fn set_cmdline_str(cmdline: &str) -> Result<()> {
 
 pub fn set_hide_uids(uids: &[u32]) -> Result<()> {
     let mut arg = HymoUidListArg::from_slice(uids);
-    ioctl_with_arg(HYMO_IOC_SET_HIDE_UIDS, &mut arg)
+    ioctl_with_arg("set_hide_uids", HYMO_IOC_SET_HIDE_UIDS, &mut arg)
 }
 
 pub fn fix_mounts() -> Result<()> {
-    ioctl_noarg(HYMO_IOC_REORDER_MNT_ID)
+    ioctl_noarg("fix_mounts", HYMO_IOC_REORDER_MNT_ID)
 }
 
 pub fn hide_overlay_xattrs(path: &Path) -> Result<()> {
     let src = cstring_from_path(path)?;
     let mut arg = HymoSyscallArg::new(&src, None, 0);
-    ioctl_with_arg(HYMO_IOC_HIDE_OVERLAY_XATTRS, &mut arg)
+    ioctl_with_arg(
+        "hide_overlay_xattrs",
+        HYMO_IOC_HIDE_OVERLAY_XATTRS,
+        &mut arg,
+    )
 }
 
 pub fn get_features() -> Result<c_int> {
     let mut features = 0;
-    ioctl_with_arg(HYMO_IOC_GET_FEATURES, &mut features)?;
+    ioctl_with_arg("get_features", HYMO_IOC_GET_FEATURES, &mut features)?;
     Ok(features)
 }
 
@@ -1002,12 +1067,12 @@ pub fn get_hooks_with_capacity(capacity: usize) -> Result<String> {
 
 pub fn add_maps_rule(rule: &HymoMapsRule) -> Result<()> {
     let mut rule = *rule;
-    ioctl_with_arg(HYMO_IOC_ADD_MAPS_RULE, &mut rule)?;
+    ioctl_with_arg("add_maps_rule", HYMO_IOC_ADD_MAPS_RULE, &mut rule)?;
     ensure_kernel_err("HymoFS add_maps_rule", rule.err)
 }
 
 pub fn clear_maps_rules() -> Result<()> {
-    ioctl_noarg(HYMO_IOC_CLEAR_MAPS_RULES)
+    ioctl_noarg("clear_maps_rules", HYMO_IOC_CLEAR_MAPS_RULES)
 }
 
 pub fn set_mount_hide(enable: bool) -> Result<()> {
@@ -1022,7 +1087,7 @@ pub fn set_mount_hide_pattern(enable: bool, path_pattern: impl AsRef<Path>) -> R
 
 pub fn set_mount_hide_config(config: &HymoMountHideArg) -> Result<()> {
     let mut config = *config;
-    ioctl_with_arg(HYMO_IOC_SET_MOUNT_HIDE, &mut config)?;
+    ioctl_with_arg("set_mount_hide", HYMO_IOC_SET_MOUNT_HIDE, &mut config)?;
     ensure_kernel_err("HymoFS mount_hide", config.err)
 }
 
@@ -1033,7 +1098,7 @@ pub fn set_maps_spoof(enable: bool) -> Result<()> {
 
 pub fn set_maps_spoof_config(config: &HymoMapsSpoofArg) -> Result<()> {
     let mut config = *config;
-    ioctl_with_arg(HYMO_IOC_SET_MAPS_SPOOF, &mut config)?;
+    ioctl_with_arg("set_maps_spoof", HYMO_IOC_SET_MAPS_SPOOF, &mut config)?;
     ensure_kernel_err("HymoFS maps_spoof", config.err)
 }
 
@@ -1053,7 +1118,7 @@ pub fn set_statfs_spoof_custom(
 
 pub fn set_statfs_spoof_config(config: &HymoStatfsSpoofArg) -> Result<()> {
     let mut config = *config;
-    ioctl_with_arg(HYMO_IOC_SET_STATFS_SPOOF, &mut config)?;
+    ioctl_with_arg("set_statfs_spoof", HYMO_IOC_SET_STATFS_SPOOF, &mut config)?;
     ensure_kernel_err("HymoFS statfs_spoof", config.err)
 }
 

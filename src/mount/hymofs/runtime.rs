@@ -112,6 +112,115 @@ fn log_feature_summary(features: Option<i32>) {
     }
 }
 
+fn log_feature_skip(feature_name: &str, detail: &str) {
+    crate::scoped_log!(
+        warn,
+        "mount:hymofs",
+        "feature skip: name={}, reason=unsupported, detail={}",
+        feature_name,
+        detail
+    );
+}
+
+fn sync_mount_hide_config(config: &config::Config, features: Option<i32>) -> Result<()> {
+    let enabled = effective_mount_hide_enabled(config);
+    if !feature_supported(features, HYMO_FEATURE_MOUNT_HIDE) {
+        if enabled {
+            log_feature_skip("mount_hide", "live sync requested");
+        }
+        return Ok(());
+    }
+
+    apply_mount_hide_from_config(config)
+}
+
+fn sync_maps_spoof_config(config: &config::Config, features: Option<i32>) -> Result<()> {
+    let enabled = effective_maps_spoof_enabled(config);
+    let has_rules = !config.hymofs.maps_rules.is_empty();
+    if !feature_supported(features, HYMO_FEATURE_MAPS_SPOOF) {
+        if enabled || has_rules {
+            log_feature_skip("maps_spoof", "live sync requested");
+        }
+        return Ok(());
+    }
+
+    hymofs::set_maps_spoof(enabled)?;
+    hymofs::clear_maps_rules()?;
+
+    for rule in &config.hymofs.maps_rules {
+        let native_rule = HymoMapsRule::new(
+            to_c_ulong(rule.target_ino, "target_ino")?,
+            to_c_ulong(rule.target_dev, "target_dev")?,
+            to_c_ulong(rule.spoofed_ino, "spoofed_ino")?,
+            to_c_ulong(rule.spoofed_dev, "spoofed_dev")?,
+            &rule.spoofed_pathname,
+        )?;
+        hymofs::add_maps_rule(&native_rule)?;
+    }
+
+    Ok(())
+}
+
+fn sync_statfs_spoof_config(config: &config::Config, features: Option<i32>) -> Result<()> {
+    let enabled = effective_statfs_spoof_enabled(config);
+    if !feature_supported(features, HYMO_FEATURE_STATFS_SPOOF) {
+        if enabled {
+            log_feature_skip("statfs_spoof", "live sync requested");
+        }
+        return Ok(());
+    }
+
+    apply_statfs_spoof_from_config(config)
+}
+
+fn sync_uname_config(config: &config::Config, features: Option<i32>) -> Result<()> {
+    let configured = has_uname_spoof_config(config);
+    if !feature_supported(features, HYMO_FEATURE_UNAME_SPOOF) {
+        if configured {
+            log_feature_skip("uname_spoof", "live sync requested");
+        }
+        return Ok(());
+    }
+
+    if configured {
+        apply_uname_from_config(config)
+    } else {
+        hymofs::set_uname(&HymoSpoofUname::default())
+    }
+}
+
+fn sync_cmdline_config(config: &config::Config, features: Option<i32>) -> Result<()> {
+    if !feature_supported(features, HYMO_FEATURE_CMDLINE_SPOOF) {
+        if !config.hymofs.cmdline_value.is_empty() {
+            log_feature_skip("cmdline_spoof", "live sync requested");
+        }
+        return Ok(());
+    }
+
+    if config.hymofs.cmdline_value.is_empty() {
+        hymofs::set_cmdline_str("")
+    } else {
+        hymofs::set_cmdline_str(&config.hymofs.cmdline_value)
+    }
+}
+
+fn sync_kstat_rules(config: &config::Config, features: Option<i32>) -> Result<()> {
+    if config.hymofs.kstat_rules.is_empty() {
+        return Ok(());
+    }
+
+    if !feature_supported(features, HYMO_FEATURE_KSTAT_SPOOF) {
+        log_feature_skip("kstat_rules", "live sync requested");
+        return Ok(());
+    }
+
+    for rule in &config.hymofs.kstat_rules {
+        apply_kstat_rule(rule)?;
+    }
+
+    Ok(())
+}
+
 fn apply_runtime_switches(
     config: &config::Config,
     runtime_requested: bool,
@@ -315,48 +424,20 @@ pub fn clear_runtime_best_effort() {
 }
 
 pub fn sync_runtime_config(config: &config::Config) -> Result<()> {
+    let features = get_features();
+    log_feature_summary(features);
+
     hymofs::set_mirror_path(&config.hymofs.mirror_path)?;
     hymofs::set_debug(config.hymofs.enable_kernel_debug)?;
     hymofs::set_stealth(effective_stealth_enabled(config))?;
-    apply_mount_hide_from_config(config)?;
-    hymofs::set_maps_spoof(effective_maps_spoof_enabled(config))?;
-    apply_statfs_spoof_from_config(config)?;
-
-    if has_uname_spoof_config(config) {
-        apply_uname_from_config(config)?;
-    } else {
-        hymofs::set_uname(&HymoSpoofUname::default())?;
-    }
-
-    if config.hymofs.cmdline_value.is_empty() {
-        hymofs::set_cmdline_str("")?;
-    } else {
-        hymofs::set_cmdline_str(&config.hymofs.cmdline_value)?;
-    }
+    sync_mount_hide_config(config, features)?;
+    sync_maps_spoof_config(config, features)?;
+    sync_statfs_spoof_config(config, features)?;
+    sync_uname_config(config, features)?;
+    sync_cmdline_config(config, features)?;
 
     hymofs::set_hide_uids(&config.hymofs.hide_uids)?;
-    if let Err(err) = hymofs::clear_maps_rules() {
-        crate::scoped_log!(
-            debug,
-            "mount:hymofs",
-            "maps rule clear skipped: error={:#}",
-            err
-        );
-    }
-    for rule in &config.hymofs.maps_rules {
-        let native_rule = HymoMapsRule::new(
-            to_c_ulong(rule.target_ino, "target_ino")?,
-            to_c_ulong(rule.target_dev, "target_dev")?,
-            to_c_ulong(rule.spoofed_ino, "spoofed_ino")?,
-            to_c_ulong(rule.spoofed_dev, "spoofed_dev")?,
-            &rule.spoofed_pathname,
-        )?;
-        hymofs::add_maps_rule(&native_rule)?;
-    }
-
-    for rule in &config.hymofs.kstat_rules {
-        apply_kstat_rule(rule)?;
-    }
+    sync_kstat_rules(config, features)?;
 
     Ok(())
 }

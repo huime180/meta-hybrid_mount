@@ -2,47 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
-    collections::HashMap,
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
-    conf::schema::{Config, DefaultMode, HymoFsConfig, ModuleRules, OverlayMode},
+    conf::schema::{Config, HymoFsConfig},
     defs,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MainConfigFile {
-    moduledir: PathBuf,
-    mountsource: String,
-    partitions: Vec<String>,
-    overlay_mode: OverlayMode,
-    disable_umount: bool,
-    allow_umount_coexistence: bool,
-    enable_overlay_fallback: bool,
-    default_mode: DefaultMode,
-    rules: HashMap<String, ModuleRules>,
-}
-
-impl From<&Config> for MainConfigFile {
-    fn from(value: &Config) -> Self {
-        Self {
-            moduledir: value.moduledir.clone(),
-            mountsource: value.mountsource.clone(),
-            partitions: value.partitions.clone(),
-            overlay_mode: value.overlay_mode.clone(),
-            disable_umount: value.disable_umount,
-            allow_umount_coexistence: value.allow_umount_coexistence,
-            enable_overlay_fallback: value.enable_overlay_fallback,
-            default_mode: value.default_mode.clone(),
-            rules: value.rules.clone(),
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Default)]
 struct LegacyWrappedHymofsConfig {
@@ -72,26 +43,20 @@ fn load_hymofs_config_file(path: &Path) -> Result<HymoFsConfig> {
         return Ok(HymoFsConfig::default());
     }
 
-    toml::from_str::<HymoFsConfig>(&content)
-        .or_else(|_| {
-            toml::from_str::<LegacyWrappedHymofsConfig>(&content).map(|wrapped| wrapped.hymofs)
-        })
-        .with_context(|| format!("failed to parse HymoFS config file {}", path.display()))
+    let value: toml::Value = toml::from_str(&content)
+        .with_context(|| format!("failed to parse HymoFS config file {}", path.display()))?;
+
+    if value.get("hymofs").is_some() {
+        toml::from_str::<LegacyWrappedHymofsConfig>(&content)
+            .map(|wrapped| wrapped.hymofs)
+            .with_context(|| format!("failed to parse wrapped HymoFS config {}", path.display()))
+    } else {
+        toml::from_str::<HymoFsConfig>(&content)
+            .with_context(|| format!("failed to parse HymoFS config file {}", path.display()))
+    }
 }
 
-fn save_hymofs_config_file(path: &Path, config: &HymoFsConfig) -> Result<()> {
-    let content = toml::to_string_pretty(config).context("failed to serialize HymoFS config")?;
-    ensure_parent_dir(path)?;
-    fs::write(path, content)
-        .with_context(|| format!("failed to write HymoFS config file {}", path.display()))?;
-    Ok(())
-}
-
-fn load_split_config(
-    main_path: &Path,
-    hymofs_path: &Path,
-    allow_missing_main: bool,
-) -> Result<Config> {
+fn load_merged_config(main_path: &Path, allow_missing_main: bool) -> Result<Config> {
     let mut config = if main_path.exists() {
         let content = fs::read_to_string(main_path)
             .with_context(|| format!("failed to read config file {}", main_path.display()))?;
@@ -105,38 +70,45 @@ fn load_split_config(
         unreachable!("read_to_string should have returned an error for missing config file");
     };
 
+    let hymofs_path = hymofs_sidecar_path_for(main_path);
     if hymofs_path.exists() {
-        config.hymofs = HymoFsConfig::from_file(hymofs_path)?;
+        config.hymofs = HymoFsConfig::from_file(&hymofs_path)?;
     }
 
     Ok(config)
 }
 
+fn remove_legacy_sidecar_if_present(main_path: &Path) -> Result<()> {
+    let hymofs_path = hymofs_sidecar_path_for(main_path);
+    match fs::remove_file(&hymofs_path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "failed to remove legacy HymoFS config {}",
+                hymofs_path.display()
+            )
+        }),
+    }
+}
+
 impl Config {
     pub fn load_optional_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let main_path = path.as_ref();
-        let hymofs_path = hymofs_sidecar_path_for(main_path);
-        load_split_config(main_path, &hymofs_path, true)
+        load_merged_config(path.as_ref(), true)
     }
 
     pub fn load_default() -> Result<Self> {
-        load_split_config(
-            Path::new(defs::CONFIG_FILE),
-            Path::new(defs::HYMOFS_CONFIG_FILE),
-            true,
-        )
+        load_merged_config(Path::new(defs::CONFIG_FILE), true)
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let main_path = path.as_ref();
-        let hymofs_path = hymofs_sidecar_path_for(main_path);
-        let content = toml::to_string_pretty(&MainConfigFile::from(self))
-            .context("failed to serialize main config")?;
+        let content = toml::to_string_pretty(self).context("failed to serialize config")?;
 
         ensure_parent_dir(main_path)?;
         fs::write(main_path, content)
             .with_context(|| format!("failed to write config file {}", main_path.display()))?;
-        save_hymofs_config_file(&hymofs_path, &self.hymofs)?;
+        remove_legacy_sidecar_if_present(main_path)?;
         Ok(())
     }
 }
@@ -145,15 +117,6 @@ impl HymoFsConfig {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         load_hymofs_config_file(path.as_ref())
     }
-
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        save_hymofs_config_file(path.as_ref(), self)?;
-        Ok(())
-    }
-}
-
-pub fn hymofs_config_path_for<P: AsRef<Path>>(main_path: P) -> PathBuf {
-    hymofs_sidecar_path_for(main_path.as_ref())
 }
 
 #[cfg(test)]
@@ -162,13 +125,15 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{Config, HymoFsConfig, hymofs_config_path_for, load_split_config};
+    use super::{Config, HymoFsConfig, load_merged_config};
 
     #[test]
-    fn save_to_file_splits_hymofs_into_sidecar() {
+    fn save_to_file_writes_hymofs_inline_and_removes_sidecar() {
         let dir = tempdir().expect("failed to create temp dir");
         let main_path = dir.path().join("config.toml");
-        let hymofs_path = hymofs_config_path_for(&main_path);
+        let hymofs_path = dir.path().join("hymofs.toml");
+
+        fs::write(&hymofs_path, "enabled = true\n").expect("failed to seed old hymofs sidecar");
 
         let mut config = Config::default();
         config.hymofs.enabled = false;
@@ -176,48 +141,44 @@ mod tests {
 
         config
             .save_to_file(&main_path)
-            .expect("failed to save split config");
+            .expect("failed to save merged config");
 
         let main_content = fs::read_to_string(&main_path).expect("failed to read main config");
-        let hymofs_content =
-            fs::read_to_string(&hymofs_path).expect("failed to read hymofs sidecar");
 
-        assert!(!main_content.contains("[hymofs]"));
-        assert!(!main_content.contains("uname_release"));
-        assert!(hymofs_content.contains("uname_release = \"6.1.0-hymo\""));
-        assert!(hymofs_content.contains("enabled = false"));
+        assert!(main_content.contains("[hymofs]"));
+        assert!(main_content.contains("uname_release = \"6.1.0-hymo\""));
+        assert!(main_content.contains("enabled = false"));
+        assert!(!hymofs_path.exists());
     }
 
     #[test]
-    fn load_split_config_uses_sidecar_when_main_is_missing() {
+    fn load_merged_config_uses_sidecar_when_main_is_missing() {
         let dir = tempdir().expect("failed to create temp dir");
         let main_path = dir.path().join("config.toml");
         let hymofs_path = dir.path().join("hymofs.toml");
 
-        HymoFsConfig {
-            enabled: false,
-            uname_version: "#1 sidecar".to_string(),
-            ..HymoFsConfig::default()
-        }
-        .save_to_file(&hymofs_path)
-        .expect("failed to save hymofs sidecar");
+        fs::write(
+            &hymofs_path,
+            "enabled = false\nuname_version = \"#1 sidecar\"\n",
+        )
+        .expect("failed to write hymofs sidecar");
 
-        let config = load_split_config(&main_path, &hymofs_path, true)
-            .expect("failed to load split config with missing main");
+        let config = load_merged_config(&main_path, true)
+            .expect("failed to load merged config with missing main");
 
         assert!(!config.hymofs.enabled);
         assert_eq!(config.hymofs.uname_version, "#1 sidecar");
     }
 
     #[test]
-    fn load_split_config_prefers_sidecar_over_legacy_inline_hymofs() {
+    fn load_merged_config_prefers_sidecar_over_inline_hymofs() {
         let dir = tempdir().expect("failed to create temp dir");
         let main_path = dir.path().join("config.toml");
         let hymofs_path = dir.path().join("hymofs.toml");
 
         fs::write(
             &main_path,
-            "moduledir = \"/data/adb/modules\"\n[hymofs]\nenabled = false\nuname_release = \"legacy\"\n",
+            "moduledir = \"/data/adb/modules\"\n[hymofs]\nenabled = false\nuname_release = \"inline\"\n",
         )
         .expect("failed to write main config");
         fs::write(
@@ -226,10 +187,23 @@ mod tests {
         )
         .expect("failed to write sidecar");
 
-        let config = load_split_config(&main_path, &hymofs_path, false)
-            .expect("failed to load merged config");
+        let config = load_merged_config(&main_path, false).expect("failed to load merged config");
 
         assert!(config.hymofs.enabled);
         assert_eq!(config.hymofs.uname_release, "sidecar");
+    }
+
+    #[test]
+    fn hymofs_config_can_still_parse_wrapped_legacy_file() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let hymofs_path = dir.path().join("hymofs.toml");
+
+        fs::write(&hymofs_path, "[hymofs]\nenabled = true\n")
+            .expect("failed to write wrapped hymofs config");
+
+        let config =
+            HymoFsConfig::from_file(&hymofs_path).expect("failed to parse wrapped hymofs config");
+
+        assert!(config.enabled);
     }
 }

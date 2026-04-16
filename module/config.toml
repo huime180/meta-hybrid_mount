@@ -1,3 +1,42 @@
-moduledir = "/data/adb/modules/"
+moduledir = "/data/adb/modules"
+mountsource = "KSU"
 partitions = []
+overlay_mode = "ext4"
+disable_umount = false
+enable_overlay_fallback = false
 default_mode = "overlay"
+
+[hymofs]
+enabled = false
+ignore_protocol_mismatch = false
+lkm_autoload = true
+lkm_dir = "/data/adb/modules/hybrid_mount/hymofs_lkm"
+lkm_kmi_override = ""
+mirror_path = "/dev/hymo_mirror"
+enable_kernel_debug = false
+enable_stealth = false
+enable_hidexattr = false
+enable_mount_hide = false
+enable_maps_spoof = false
+enable_statfs_spoof = false
+hide_uids = []
+uname_release = ""
+uname_version = ""
+cmdline_value = ""
+
+[hymofs.mount_hide]
+enabled = false
+path_pattern = ""
+
+[hymofs.statfs_spoof]
+enabled = false
+path = ""
+spoof_f_type = 0
+
+[hymofs.uname]
+sysname = ""
+nodename = ""
+release = ""
+version = ""
+machine = ""
+domainname = ""

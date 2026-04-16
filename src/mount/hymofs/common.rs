@@ -56,7 +56,7 @@ pub(super) fn has_uname_spoof_config(config: &config::Config) -> bool {
 pub(super) fn feature_supported(features: Option<i32>, required_feature: i32) -> bool {
     features
         .map(|bits| bits & required_feature != 0)
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 pub(super) fn to_c_ulong(value: u64, field_name: &str) -> Result<libc::c_ulong> {

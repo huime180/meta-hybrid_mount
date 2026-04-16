@@ -166,7 +166,7 @@ pub struct HymoFsConfig {
     pub mirror_path: PathBuf,
     #[serde(default)]
     pub enable_kernel_debug: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enable_stealth: bool,
     #[serde(default, alias = "hidexattr")]
     pub enable_hidexattr: bool,
@@ -206,7 +206,7 @@ impl Default for HymoFsConfig {
             lkm_kmi_override: String::new(),
             mirror_path: default_hymofs_mirror_path(),
             enable_kernel_debug: false,
-            enable_stealth: default_true(),
+            enable_stealth: false,
             enable_hidexattr: false,
             enable_mount_hide: false,
             enable_maps_spoof: false,
@@ -236,8 +236,6 @@ pub struct Config {
     pub overlay_mode: OverlayMode,
     #[serde(default)]
     pub disable_umount: bool,
-    #[serde(default)]
-    pub allow_umount_coexistence: bool,
     #[serde(default)]
     pub enable_overlay_fallback: bool,
     #[serde(default)]
@@ -297,7 +295,6 @@ impl Default for Config {
             partitions: Vec::new(),
             overlay_mode: OverlayMode::default(),
             disable_umount: false,
-            allow_umount_coexistence: false,
             enable_overlay_fallback: false,
             default_mode: DefaultMode::default(),
             hymofs: HymoFsConfig::default(),
@@ -374,7 +371,7 @@ enable_overlay_fallback = true
         assert_eq!(cfg.lkm_dir, PathBuf::from(defs::HYMOFS_LKM_DIR));
         assert!(cfg.lkm_kmi_override.is_empty());
         assert!(!cfg.enabled);
-        assert!(cfg.enable_stealth);
+        assert!(!cfg.enable_stealth);
         assert!(!cfg.enable_hidexattr);
         assert!(!cfg.mount_hide.enabled);
         assert!(cfg.mount_hide.path_pattern.as_os_str().is_empty());

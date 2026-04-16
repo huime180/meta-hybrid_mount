@@ -58,14 +58,10 @@ fn config_output_path(cli: &Cli) -> PathBuf {
 
 fn save_hymofs_config_for_cli(cli: &Cli, config: &Config) -> Result<PathBuf> {
     let main_path = config_output_path(cli);
-    let hymofs_path = crate::conf::store::hymofs_config_path_for(&main_path);
-    config.hymofs.save_to_file(&hymofs_path).with_context(|| {
-        format!(
-            "Failed to save HymoFS config file to {}",
-            hymofs_path.display()
-        )
-    })?;
-    Ok(hymofs_path)
+    config
+        .save_to_file(&main_path)
+        .with_context(|| format!("Failed to save config file to {}", main_path.display()))?;
+    Ok(main_path)
 }
 
 fn apply_live_if_possible<F>(config: &Config, description: &str, operation: F) -> Result<bool>
