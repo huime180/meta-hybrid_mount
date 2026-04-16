@@ -33,10 +33,20 @@ pub fn update_description(
         _ => "💿",
     };
 
+    let mut stats = Vec::new();
+    if hymofs_count > 0 {
+        stats.push(format!("HymoFS: {}", hymofs_count));
+    }
+    stats.push(format!("Overlay: {}", overlay_count));
+    stats.push(format!("Magic: {}", magic_count));
+
+    let stats_str = stats.join("  ");
+
     let desc_text = format!(
-        "😋 运行中喵～ ({}) {} | HymoFS: {} | Overlay: {} | Magic: {}",
-        mode_str, status_emoji, hymofs_count, overlay_count, magic_count
+        "😋 运行中喵～ ({}) {}  {}",
+        mode_str, status_emoji, stats_str
     );
+
     set_description(prop_path, &desc_text);
 }
 
@@ -47,7 +57,7 @@ pub fn update_crash_description(reason: &str) {
         return;
     }
 
-    let desc_text = format!("😭 崩溃了呜～ | 原因: {}", reason);
+    let desc_text = format!("😭 崩溃了呜～ 原因: {}", reason);
     set_description(prop_path, &desc_text);
 }
 
