@@ -1,3 +1,6 @@
+[ ! -f "/dev/.esred" ] && exit 0
+[ -f "/dev/.mounted" ] && exit 0
+touch /dev/.mounted
 MODDIR="${0%/*}"
 BASE_DIR="/data/adb/hybrid-mount"
 
