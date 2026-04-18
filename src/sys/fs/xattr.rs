@@ -1,9 +1,9 @@
 // Copyright 2026 Hybrid Mount Developers
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::path::{Component, Path, PathBuf};
+use std::{fs, path::{Component, Path, PathBuf}};
 #[cfg(any(target_os = "linux", target_os = "android"))]
-use std::{fs, io::Read, os::unix::ffi::OsStrExt};
+use std::{io::Read, os::unix::ffi::OsStrExt};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use anyhow::Context;
@@ -15,7 +15,6 @@ use extattr::{Flags as XattrFlags, lgetxattr, llistxattr, lsetxattr};
 const SELINUX_XATTR: &str = "security.selinux";
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const OVERLAY_OPAQUE_XATTR: &str = "trusted.overlay.opaque";
-const LEGACY_SYSTEM_FILE_CONTEXT: &str = "u:object_r:system_file:s0";
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
@@ -134,9 +133,9 @@ pub fn internal_copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
     copy_extended_attributes(src, dst)
 }
 
-fn logical_live_candidates(relative: &Path, managed_partitions: &[String]) -> Vec<PathBuf> {
+fn managed_partition_start(relative: &Path, managed_partitions: &[String]) -> Option<usize> {
     let components: Vec<_> = relative.components().collect();
-    let Some(start_idx) = components.iter().position(|component| {
+    components.iter().position(|component| {
         let Component::Normal(value) = component else {
             return false;
         };
@@ -144,18 +143,96 @@ fn logical_live_candidates(relative: &Path, managed_partitions: &[String]) -> Ve
             return false;
         };
         managed_partitions.iter().any(|item| item == value)
-    }) else {
-        return Vec::new();
+    })
+}
+
+fn resolve_target_path(path: &Path) -> PathBuf {
+    let resolved = match fs::read_link(path) {
+        Ok(link_target) => {
+            if link_target.is_absolute() {
+                link_target
+            } else {
+                path.parent()
+                    .unwrap_or(Path::new("/"))
+                    .join(link_target)
+            }
+        }
+        Err(_) => path.to_path_buf(),
     };
 
-    let mut current = PathBuf::from("/");
-    for component in components.iter().skip(start_idx) {
-        current.push(component.as_os_str());
+    normalize_path(&resolved)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    let mut saw_root = false;
+
+    for component in path.components() {
+        match component {
+            Component::RootDir => {
+                normalized.push(Path::new("/"));
+                saw_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = normalized.pop();
+                if saw_root && normalized.as_os_str().is_empty() {
+                    normalized.push(Path::new("/"));
+                }
+            }
+            Component::Normal(value) => normalized.push(value),
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+        }
     }
 
-    let mut candidates = Vec::new();
+    if saw_root && normalized.as_os_str().is_empty() {
+        PathBuf::from("/")
+    } else {
+        normalized
+    }
+}
+
+fn resolve_live_target_path_with_root(
+    relative: &Path,
+    managed_partitions: &[String],
+    root: &Path,
+) -> Option<PathBuf> {
+    let components: Vec<_> = relative.components().collect();
+    let start_idx = managed_partition_start(relative, managed_partitions)?;
+
+    let mut current = resolve_target_path(&root.join(components[start_idx].as_os_str()));
+    for component in components.iter().skip(start_idx + 1) {
+        current = resolve_target_path(&current.join(component.as_os_str()));
+    }
+
+    Some(current)
+}
+
+fn resolve_target_directory_with_root(
+    relative: &Path,
+    dst_is_dir: bool,
+    managed_partitions: &[String],
+    root: &Path,
+) -> Option<PathBuf> {
+    let target_path = resolve_live_target_path_with_root(relative, managed_partitions, root)?;
+    if dst_is_dir {
+        return Some(target_path);
+    }
+
+    target_path
+        .parent()
+        .map(|parent| parent.to_path_buf())
+        .or_else(|| Some(root.to_path_buf()))
+}
+
+fn resolve_live_target_directory_context(
+    target_dir: &Path,
+) -> Option<(PathBuf, String)> {
+    let mut current = target_dir.to_path_buf();
     loop {
-        candidates.push(current.clone());
+        if let Ok(context) = lgetfilecon(&current) {
+            return Some((current, context));
+        }
 
         if current == Path::new("/") {
             break;
@@ -170,18 +247,7 @@ fn logical_live_candidates(relative: &Path, managed_partitions: &[String]) -> Ve
             parent.to_path_buf()
         };
     }
-
-    candidates
-}
-
-fn is_legacy_system_vendor_firmware_path(relative: &Path) -> bool {
-    let components: Vec<_> = relative.components().collect();
-    components.windows(3).any(|window| {
-        let [a, b, c] = window else {
-            return false;
-        };
-        &&matches!(c, Component::Normal(v) if v.to_str() == Some("firmware"))
-    })
+    None
 }
 
 pub fn apply_best_effort_live_context(
@@ -189,16 +255,51 @@ pub fn apply_best_effort_live_context(
     relative: &Path,
     managed_partitions: &[String],
 ) -> Result<()> {
-    if is_legacy_system_vendor_firmware_path(relative) {
-        let _ = lsetfilecon(dst, LEGACY_SYSTEM_FILE_CONTEXT);
-        return Ok(());
-    }
+    let relative_display = if relative.as_os_str().is_empty() {
+        "/".to_string()
+    } else {
+        relative.display().to_string()
+    };
+    let dst_is_dir = dst.is_dir();
 
-    for candidate in logical_live_candidates(relative, managed_partitions) {
-        if let Ok(context) = lgetfilecon(&candidate) {
-            let _ = lsetfilecon(dst, &context);
-            break;
+    let Some(target_dir) =
+        resolve_target_directory_with_root(relative, dst_is_dir, managed_partitions, Path::new("/"))
+    else {
+        if dst_is_dir {
+            crate::scoped_log!(
+                warn,
+                "selinux:context",
+                "target resolve failed: relative={}, dst={}",
+                relative_display,
+                dst.display()
+            );
         }
+        return Ok(());
+    };
+
+    if let Some((source, context)) = resolve_live_target_directory_context(&target_dir) {
+        if dst_is_dir {
+            crate::scoped_log!(
+                info,
+                "selinux:context",
+                "resolved: relative={}, dst={}, target_dir={}, live_source={}, live_context={}",
+                relative_display,
+                dst.display(),
+                target_dir.display(),
+                source.display(),
+                context
+            );
+        }
+        let _ = lsetfilecon(dst, &context);
+    } else if dst_is_dir {
+        crate::scoped_log!(
+            warn,
+            "selinux:context",
+            "context resolve failed: relative={}, dst={}, target_dir={}, live_source=<none>, live_context=<none>",
+            relative_display,
+            dst.display(),
+            target_dir.display()
+        );
     }
 
     Ok(())
@@ -206,45 +307,73 @@ pub fn apply_best_effort_live_context(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    use std::{fs, path::Path};
 
-    use super::{is_legacy_system_vendor_firmware_path, logical_live_candidates};
+    use tempfile::tempdir;
+
+    use super::{resolve_live_target_path_with_root, resolve_target_directory_with_root};
 
     #[test]
-    fn logical_live_candidates_skip_module_root_and_walk_parents() {
+    fn resolve_live_target_path_follows_system_vendor_symlink() {
+        let root = tempdir().expect("failed to create temp root");
+        let rootfs = root.path().join("rootfs");
+        fs::create_dir_all(rootfs.join("system")).expect("failed to create /system");
+        fs::create_dir_all(rootfs.join("vendor/firmware"))
+            .expect("failed to create /vendor/firmware");
+        #[cfg(unix)]
+        symlink("../vendor", rootfs.join("system/vendor"))
+            .expect("failed to create /system/vendor symlink");
+
         let managed = vec![
             "system".to_string(),
             "product".to_string(),
             "vendor".to_string(),
         ];
 
-        let candidates = logical_live_candidates(
-            Path::new("module_a/system/product/overlay/Foo.apk"),
+        let target = resolve_live_target_path_with_root(
+            Path::new("module_a/system/vendor/firmware/gen80000_sqe.fw"),
             &managed,
-        );
+            &rootfs,
+        )
+        .expect("target should resolve");
 
         assert_eq!(
-            candidates,
-            vec![
-                Path::new("/system/product/overlay/Foo.apk").to_path_buf(),
-                Path::new("/system/product/overlay").to_path_buf(),
-                Path::new("/system/product").to_path_buf(),
-                Path::new("/system").to_path_buf(),
-                Path::new("/").to_path_buf(),
-            ]
+            target,
+            rootfs.join("vendor/firmware/gen80000_sqe.fw")
         );
     }
 
     #[test]
-    fn legacy_system_vendor_firmware_path_matches_only_target_prefix() {
-        assert!(is_legacy_system_vendor_firmware_path(Path::new(
-            "module_a/system/vendor/firmware/gen80000_sqe.fw"
-        )));
-        assert!(!is_legacy_system_vendor_firmware_path(Path::new(
-            "module_a/vendor/firmware/gen80000_sqe.fw"
-        )));
-        assert!(!is_legacy_system_vendor_firmware_path(Path::new(
-            "module_a/system/vendor/lib64/libGLESv2_adreno.so"
-        )));
+    fn resolve_target_directory_uses_file_parent_for_file_nodes() {
+        let root = tempdir().expect("failed to create temp root");
+        let rootfs = root.path().join("rootfs");
+        fs::create_dir_all(rootfs.join("vendor/etc/permissions"))
+            .expect("failed to create target directory");
+
+        let managed = vec![
+            "system".to_string(),
+            "product".to_string(),
+            "vendor".to_string(),
+        ];
+
+        let file_target_dir = resolve_target_directory_with_root(
+            Path::new("module_a/vendor/etc/permissions/com.test.xml"),
+            false,
+            &managed,
+            &rootfs,
+        )
+        .expect("file target dir should resolve");
+        assert_eq!(file_target_dir, rootfs.join("vendor/etc/permissions"));
+
+        let dir_target_dir = resolve_target_directory_with_root(
+            Path::new("module_a/vendor/etc/permissions"),
+            true,
+            &managed,
+            &rootfs,
+        )
+        .expect("dir target dir should resolve");
+        assert_eq!(dir_target_dir, rootfs.join("vendor/etc/permissions"));
     }
 }
