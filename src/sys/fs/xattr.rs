@@ -15,6 +15,7 @@ use extattr::{Flags as XattrFlags, lgetxattr, llistxattr, lsetxattr};
 const SELINUX_XATTR: &str = "security.selinux";
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const OVERLAY_OPAQUE_XATTR: &str = "trusted.overlay.opaque";
+const LEGACY_SYSTEM_FILE_CONTEXT: &str = "u:object_r:system_file:s0";
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
@@ -173,11 +174,26 @@ fn logical_live_candidates(relative: &Path, managed_partitions: &[String]) -> Ve
     candidates
 }
 
+fn is_legacy_system_vendor_firmware_path(relative: &Path) -> bool {
+    let components: Vec<_> = relative.components().collect();
+    components.windows(3).any(|window| {
+        let [a, b, c] = window else {
+            return false;
+        };
+        &&matches!(c, Component::Normal(v) if v.to_str() == Some("firmware"))
+    })
+}
+
 pub fn apply_best_effort_live_context(
     dst: &Path,
     relative: &Path,
     managed_partitions: &[String],
 ) -> Result<()> {
+    if is_legacy_system_vendor_firmware_path(relative) {
+        let _ = lsetfilecon(dst, LEGACY_SYSTEM_FILE_CONTEXT);
+        return Ok(());
+    }
+
     for candidate in logical_live_candidates(relative, managed_partitions) {
         if let Ok(context) = lgetfilecon(&candidate) {
             let _ = lsetfilecon(dst, &context);
@@ -192,7 +208,7 @@ pub fn apply_best_effort_live_context(
 mod tests {
     use std::path::Path;
 
-    use super::logical_live_candidates;
+    use super::{is_legacy_system_vendor_firmware_path, logical_live_candidates};
 
     #[test]
     fn logical_live_candidates_skip_module_root_and_walk_parents() {
@@ -217,5 +233,18 @@ mod tests {
                 Path::new("/").to_path_buf(),
             ]
         );
+    }
+
+    #[test]
+    fn legacy_system_vendor_firmware_path_matches_only_target_prefix() {
+        assert!(is_legacy_system_vendor_firmware_path(Path::new(
+            "module_a/system/vendor/firmware/gen80000_sqe.fw"
+        )));
+        assert!(!is_legacy_system_vendor_firmware_path(Path::new(
+            "module_a/vendor/firmware/gen80000_sqe.fw"
+        )));
+        assert!(!is_legacy_system_vendor_firmware_path(Path::new(
+            "module_a/system/vendor/lib64/libGLESv2_adreno.so"
+        )));
     }
 }
