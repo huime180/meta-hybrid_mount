@@ -296,5 +296,4 @@ mod tests {
         assert!(!stats.has_mount_content);
         assert!(stats.opaque_dirs.is_empty());
     }
-
 }

@@ -194,15 +194,18 @@ fn collect_magic_subtree(
         let name = file_name.to_string_lossy().to_string();
         let entry_path = entry.path();
         let next_relative = relative_path.join(&file_name);
-        let effective_mode =
-            effective_mode(&rules.get_mode(next_relative.to_string_lossy().as_ref()), use_hymofs);
+        let effective_mode = effective_mode(
+            &rules.get_mode(next_relative.to_string_lossy().as_ref()),
+            use_hymofs,
+        );
 
         match entry.file_type() {
             Ok(file_type) if file_type.is_dir() => {
                 let has_descendant_rules = path_has_descendant_rule(rules, &next_relative);
                 if matches!(effective_mode, MountMode::Magic) && !has_descendant_rules {
                     if let Some(mut node) = Node::new_module(&name, &entry) {
-                        let subtree_has_file = node.collect_module_files(&entry_path)? || node.replace;
+                        let subtree_has_file =
+                            node.collect_module_files(&entry_path)? || node.replace;
                         if subtree_has_file {
                             target.children.insert(name, node);
                             has_file = true;
@@ -218,9 +221,13 @@ fn collect_magic_subtree(
                 let Some(mut node) = Node::new_module(&name, &entry) else {
                     continue;
                 };
-                let subtree_has_file =
-                    collect_magic_subtree(&mut node, &entry_path, &next_relative, rules, use_hymofs)?
-                        || node.replace;
+                let subtree_has_file = collect_magic_subtree(
+                    &mut node,
+                    &entry_path,
+                    &next_relative,
+                    rules,
+                    use_hymofs,
+                )? || node.replace;
                 if subtree_has_file {
                     target.children.insert(name, node);
                     has_file = true;
@@ -572,5 +579,4 @@ mod tests {
             .expect("missing product partition node");
         assert!(product.children.contains_key("overlay"));
     }
-
 }

@@ -14,6 +14,8 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::sync::OnceLock;
 use std::{
     collections::HashMap,
     fs,
@@ -27,8 +29,6 @@ use anyhow::Context;
 use anyhow::Result;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use extattr::{Flags as XattrFlags, lgetxattr, llistxattr, lsetxattr};
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use std::sync::OnceLock;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const SELINUX_XATTR: &str = "security.selinux";
@@ -487,7 +487,9 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{resolve_live_target_path_with_root, resolved_target_directory, should_apply_live_context};
+    use super::{
+        resolve_live_target_path_with_root, resolved_target_directory, should_apply_live_context,
+    };
 
     #[test]
     fn resolve_live_target_path_follows_system_vendor_symlink() {

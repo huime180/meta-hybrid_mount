@@ -215,18 +215,18 @@ impl Executor {
                 hymofs_available,
             )
             .map_err(|err| {
-                    let failed_module_ids =
-                        fallback::resolve_magic_failure_modules(&err, &magic_need_list);
-                    ModuleStageFailure::new(
-                        FailureStage::Execute,
-                        failed_module_ids.clone(),
-                        anyhow::anyhow!(
-                            "Failed to mount Magic Mount modules [{}]: {:#}",
-                            failed_module_ids.join(", "),
-                            err
-                        ),
-                    )
-                })?;
+                let failed_module_ids =
+                    fallback::resolve_magic_failure_modules(&err, &magic_need_list);
+                ModuleStageFailure::new(
+                    FailureStage::Execute,
+                    failed_module_ids.clone(),
+                    anyhow::anyhow!(
+                        "Failed to mount Magic Mount modules [{}]: {:#}",
+                        failed_module_ids.join(", "),
+                        err
+                    ),
+                )
+            })?;
             mount_stats.merge(&magic_stats);
             let mounted_ids: BTreeSet<String> = mounted_ids.into_iter().collect();
             final_magic_ids.retain(|id| mounted_ids.contains(id));

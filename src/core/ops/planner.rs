@@ -299,7 +299,8 @@ fn plan_subtree(
             }
         }
 
-        if matches!(effective_mode, MountMode::Magic) && (direct_non_dir_entries || !child_dirs.is_empty())
+        if matches!(effective_mode, MountMode::Magic)
+            && (direct_non_dir_entries || !child_dirs.is_empty())
         {
             presence.magic = true;
         }
@@ -309,7 +310,9 @@ fn plan_subtree(
             presence.hymofs = true;
         }
 
-        if matches!(effective_mode, MountMode::Overlay) && direct_non_dir_entries && has_descendant_rules
+        if matches!(effective_mode, MountMode::Overlay)
+            && direct_non_dir_entries
+            && has_descendant_rules
         {
             crate::scoped_log!(
                 warn,
