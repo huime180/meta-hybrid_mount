@@ -14,23 +14,29 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 
 use crate::{
     conf::config::Config,
     core::{
+        backend_capabilities::BackendCapabilities,
+        hymofs_coordinator::HymofsCoordinator,
         inventory::{self},
         ops::{
             executor::{self},
+            plan::MountPlan,
             planner, sync,
         },
         recovery::{FailureStage, ModuleStageFailure},
         runtime_finalization,
-        storage::{self, StorageHandle},
+        storage::StorageHandle,
     },
-    defs,
 };
 
 pub struct Init;
@@ -47,17 +53,18 @@ pub struct ModulesReady {
 pub struct Planned {
     pub handle: StorageHandle,
     pub modules: Vec<inventory::Module>,
-    pub plan: planner::MountPlan,
+    pub plan: MountPlan,
 }
 
 pub struct Executed {
     pub handle: StorageHandle,
-    pub plan: planner::MountPlan,
+    pub plan: MountPlan,
     pub result: executor::ExecutionResult,
 }
 
 pub struct MountController<S> {
     config: Config,
+    backend_capabilities: BackendCapabilities,
     state: S,
     tempdir: PathBuf,
 }
@@ -68,6 +75,7 @@ impl MountController<Init> {
         P: AsRef<Path>,
     {
         Self {
+            backend_capabilities: BackendCapabilities::detect(&config),
             config,
             state: Init,
             tempdir: tempdir.as_ref().to_path_buf(),
@@ -81,7 +89,7 @@ impl MountController<Init> {
             "start: mount_base={}",
             mnt_base.display()
         );
-        let handle = storage::setup(
+        let handle = crate::core::storage::setup(
             mnt_base,
             &self.config.moduledir,
             matches!(
@@ -102,6 +110,7 @@ impl MountController<Init> {
 
         Ok(MountController {
             config: self.config,
+            backend_capabilities: self.backend_capabilities,
             state: StorageReady { handle },
             tempdir: self.tempdir,
         })
@@ -132,68 +141,25 @@ impl MountController<StorageReady> {
 
         crate::scoped_log!(info, "controller:scan_and_sync", "commit complete");
 
-        if planner::hymofs_backend_requested(&self.config, &modules) {
-            let hymofs_modules: Vec<_> = modules
-                .iter()
-                .filter(|module| planner::module_requests_hymofs(module))
-                .cloned()
-                .collect();
-            let hymofs_module_ids: Vec<String> = hymofs_modules
-                .iter()
-                .map(|module| module.id.clone())
-                .collect();
-            let hymofs_sources = hymofs_modules
-                .iter()
-                .map(|module| module.source_path.clone())
-                .collect::<Vec<_>>();
-
-            crate::scoped_log!(
-                info,
-                "controller:scan_and_sync",
-                "hymofs storage start: target={}, modules={}",
-                self.config.hymofs.mirror_path.display(),
-                hymofs_modules.len()
-            );
-
-            let mut hymofs_storage = storage::setup_with_sources(
-                &self.config.hymofs.mirror_path,
-                &hymofs_sources,
-                matches!(
-                    self.config.overlay_mode,
-                    crate::conf::config::OverlayMode::Ext4
-                ),
-                &self.config.mountsource,
-                true,
-                std::path::Path::new(defs::HYMOFS_IMG_FILE),
-            )
+        let hymofs = HymofsCoordinator::new(&self.config);
+        hymofs
+            .prepare_mirror_storage(&self.backend_capabilities, &modules)
             .map_err(|err| {
+                let module_ids = hymofs
+                    .hymofs_modules(&modules)
+                    .into_iter()
+                    .map(|module| module.id.clone())
+                    .collect();
                 ModuleStageFailure::new(
                     FailureStage::Sync,
-                    hymofs_module_ids.clone(),
-                    anyhow::anyhow!("Failed to initialize HymoFS mirror storage: {:#}", err),
+                    module_ids,
+                    anyhow::anyhow!("Failed to prepare HymoFS mirror storage: {:#}", err),
                 )
             })?;
-
-            sync::perform_sync(&hymofs_modules, hymofs_storage.mount_point(), &self.config)?;
-            hymofs_storage.commit(true).map_err(|err| {
-                ModuleStageFailure::new(
-                    FailureStage::Sync,
-                    hymofs_module_ids.clone(),
-                    anyhow::anyhow!("Failed to finalize HymoFS mirror storage: {:#}", err),
-                )
-            })?;
-
-            crate::scoped_log!(
-                info,
-                "controller:scan_and_sync",
-                "hymofs storage complete: mode={}, target={}",
-                hymofs_storage.mode(),
-                self.config.hymofs.mirror_path.display()
-            );
-        }
 
         Ok(MountController {
             config: self.config,
+            backend_capabilities: self.backend_capabilities,
             state: ModulesReady {
                 handle: self.state.handle,
                 modules,
@@ -210,6 +176,7 @@ impl MountController<ModulesReady> {
             &self.config,
             &self.state.modules,
             self.state.handle.mount_point(),
+            &self.backend_capabilities,
         )?;
 
         crate::scoped_log!(
@@ -224,6 +191,7 @@ impl MountController<ModulesReady> {
 
         Ok(MountController {
             config: self.config,
+            backend_capabilities: self.backend_capabilities,
             state: Planned {
                 handle: self.state.handle,
                 modules: self.state.modules,
@@ -255,6 +223,7 @@ impl MountController<Planned> {
 
         Ok(MountController {
             config: self.config,
+            backend_capabilities: self.backend_capabilities,
             state: Executed {
                 handle: self.state.handle,
                 plan: self.state.plan,
@@ -276,8 +245,150 @@ impl MountController<Executed> {
             &self.state.result,
         )?;
 
+        clean_up(
+            &self.tempdir,
+            &self.config.hymofs.mirror_path,
+            self.config.disable_umount,
+        )?;
+
         crate::scoped_log!(info, "controller:finalize", "complete");
 
         Ok(())
+    }
+}
+
+fn clean_up(tempdir: &Path, hymofs_mirror_path: &Path, disable_umount: bool) -> Result<()> {
+    if disable_umount {
+        crate::scoped_log!(
+            debug,
+            "controller:finalize",
+            "cleanup skipped: path={}, reason=disable_umount",
+            tempdir.display()
+        );
+        return Ok(());
+    }
+
+    if !tempdir.starts_with("/mnt") {
+        crate::scoped_log!(
+            debug,
+            "controller:finalize",
+            "cleanup skipped: path={}, reason=outside_mnt",
+            tempdir.display()
+        );
+        return Ok(());
+    }
+
+    clean_up_path(tempdir, hymofs_mirror_path)
+}
+
+fn clean_up_path(tempdir: &Path, hymofs_mirror_path: &Path) -> Result<()> {
+    if tempdir == hymofs_mirror_path {
+        crate::scoped_log!(
+            info,
+            "controller:finalize",
+            "cleanup skipped: path={}, reason=hymofs_mirror",
+            tempdir.display()
+        );
+        return Ok(());
+    }
+
+    if hymofs_mirror_path.starts_with(tempdir) {
+        let Some(preserved_child) = hymofs_mirror_path
+            .strip_prefix(tempdir)
+            .ok()
+            .and_then(|relative| relative.components().next())
+            .map(|component| component.as_os_str().to_owned())
+        else {
+            return Ok(());
+        };
+
+        crate::scoped_log!(
+            info,
+            "controller:finalize",
+            "cleanup partial: path={}, preserve={}",
+            tempdir.display(),
+            hymofs_mirror_path.display()
+        );
+
+        let entries = match fs::read_dir(tempdir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err.into()),
+        };
+
+        for entry in entries {
+            let entry = entry?;
+            if entry.file_name() == preserved_child {
+                continue;
+            }
+            remove_path(&entry.path())?;
+        }
+
+        return Ok(());
+    }
+
+    crate::scoped_log!(
+        info,
+        "controller:finalize",
+        "cleanup: remove={}",
+        tempdir.display()
+    );
+    remove_path(tempdir)
+}
+
+fn remove_path(path: &Path) -> Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::clean_up_path;
+
+    #[test]
+    fn clean_up_path_removes_tempdir_when_no_hymofs_mirror_is_inside() {
+        let temp = tempdir().expect("failed to create temp dir");
+        let mount_dir = temp.path().join("mnt-session");
+        fs::create_dir_all(&mount_dir).expect("failed to create mount dir");
+        fs::write(mount_dir.join("marker"), b"temp").expect("failed to create marker file");
+
+        clean_up_path(&mount_dir, &temp.path().join("hymo-outside"))
+            .expect("cleanup should succeed");
+
+        assert!(!mount_dir.exists());
+    }
+
+    #[test]
+    fn clean_up_path_preserves_nested_hymofs_mirror_dir() {
+        let temp = tempdir().expect("failed to create temp dir");
+        let mount_dir = temp.path().join("mnt-session");
+        let magic_dir = mount_dir.join("magic_workspace");
+        let hymofs_dir = mount_dir.join("hymofs");
+
+        fs::create_dir_all(&magic_dir).expect("failed to create magic dir");
+        fs::create_dir_all(&hymofs_dir).expect("failed to create hymofs dir");
+        fs::write(magic_dir.join("marker"), b"temp").expect("failed to create magic marker");
+        fs::write(hymofs_dir.join("marker"), b"hymo").expect("failed to create hymofs marker");
+
+        clean_up_path(&mount_dir, &hymofs_dir).expect("cleanup should succeed");
+
+        assert!(mount_dir.exists());
+        assert!(!magic_dir.exists());
+        assert!(hymofs_dir.exists());
     }
 }

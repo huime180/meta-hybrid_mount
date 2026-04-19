@@ -16,9 +16,11 @@
 
 pub mod api;
 pub mod backend;
+pub mod backend_capabilities;
 pub mod cli_commands;
 pub mod controller;
 pub mod entry;
+pub mod hymofs_coordinator;
 pub mod inventory;
 pub mod module_status;
 pub mod ops;

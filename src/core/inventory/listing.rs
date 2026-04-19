@@ -28,8 +28,9 @@ use serde::Serialize;
 
 use super::discovery;
 use crate::{
-    conf::config::{self, MountMode},
+    conf::config,
     core::runtime_state::RuntimeState,
+    domain::{ModuleRules, MountMode},
 };
 
 static MODULE_PROP_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -97,7 +98,7 @@ struct ModuleInfo {
     path: String,
     enabled: bool,
     is_mounted: bool,
-    rules: config::ModuleRules,
+    rules: ModuleRules,
 }
 
 impl ModuleInfo {

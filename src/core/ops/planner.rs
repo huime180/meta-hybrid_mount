@@ -24,42 +24,16 @@ use anyhow::Result;
 
 use crate::{
     conf::config,
-    core::inventory::{Module, MountMode},
+    core::{
+        backend_capabilities::BackendCapabilities,
+        hymofs_coordinator::HymofsCoordinator,
+        inventory::Module,
+        ops::plan::{MountPlan, OverlayOperation},
+    },
     defs,
-    sys::hymofs,
+    domain::MountMode,
     utils,
 };
-
-#[derive(Debug, Clone)]
-pub struct OverlayOperation {
-    pub partition_name: String,
-    pub target: String,
-    pub lowerdirs: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HymofsAddRule {
-    pub target: String,
-    pub source: PathBuf,
-    pub file_type: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct HymofsMergeRule {
-    pub target: String,
-    pub source: PathBuf,
-}
-
-#[derive(Debug, Default)]
-pub struct MountPlan {
-    pub overlay_ops: Vec<OverlayOperation>,
-    pub hymofs_add_rules: Vec<HymofsAddRule>,
-    pub hymofs_merge_rules: Vec<HymofsMergeRule>,
-    pub hymofs_hide_rules: Vec<String>,
-    pub overlay_module_ids: Vec<String>,
-    pub magic_module_ids: Vec<String>,
-    pub hymofs_module_ids: Vec<String>,
-}
 
 struct ProcessingItem {
     module_source: PathBuf,
@@ -95,21 +69,6 @@ fn sorted_ids(ids: HashSet<String>) -> Vec<String> {
     let mut out: Vec<String> = ids.into_iter().collect();
     out.sort();
     out
-}
-
-pub fn module_requests_hymofs(module: &Module) -> bool {
-    matches!(module.rules.default_mode, MountMode::Hymofs)
-        || module
-            .rules
-            .paths
-            .values()
-            .any(|mode| matches!(mode, MountMode::Hymofs))
-}
-
-pub fn hymofs_backend_requested(config: &config::Config, modules: &[Module]) -> bool {
-    config.hymofs.enabled
-        && hymofs::can_operate(config.hymofs.ignore_protocol_mismatch)
-        && modules.iter().any(module_requests_hymofs)
 }
 
 fn module_content_path(storage_root: &Path, module: &Module) -> Option<PathBuf> {
@@ -399,8 +358,9 @@ pub fn generate(
     config: &config::Config,
     modules: &[Module],
     storage_root: &Path,
+    capabilities: &BackendCapabilities,
 ) -> Result<MountPlan> {
-    generate_with_root(config, modules, storage_root, Path::new("/"))
+    generate_with_root(config, modules, storage_root, Path::new("/"), capabilities)
 }
 
 fn generate_with_root(
@@ -408,6 +368,7 @@ fn generate_with_root(
     modules: &[Module],
     storage_root: &Path,
     system_root: &Path,
+    capabilities: &BackendCapabilities,
 ) -> Result<MountPlan> {
     crate::scoped_log!(
         info,
@@ -433,17 +394,18 @@ fn generate_with_root(
     let sensitive_partitions: HashSet<&str> = defs::SENSITIVE_PARTITIONS.iter().cloned().collect();
     let extra_partitions: HashSet<&str> = config.partitions.iter().map(String::as_str).collect();
     let managed_partitions = defs::managed_partition_set(&config.partitions);
-    let use_hymofs =
-        config.hymofs.enabled && hymofs::can_operate(config.hymofs.ignore_protocol_mismatch);
-    let hymofs_requested = modules.iter().any(module_requests_hymofs);
+    let use_hymofs = capabilities.can_use_hymofs();
+    let hymofs_requested = modules
+        .iter()
+        .any(HymofsCoordinator::module_requests_hymofs);
 
     if hymofs_requested && !use_hymofs {
         if config.hymofs.enabled {
             crate::scoped_log!(
                 warn,
                 "planner",
-                "hymofs fallback: enabled=true, status={:?}, action=ignore",
-                hymofs::check_status()
+                "hymofs fallback: enabled=true, status={}, action=ignore",
+                capabilities.hymofs_status()
             );
         } else {
             crate::scoped_log!(
@@ -625,8 +587,9 @@ mod tests {
 
     use super::generate_with_root;
     use crate::{
-        conf::config::{Config, ModuleRules, MountMode},
-        core::inventory::Module,
+        conf::config::Config,
+        core::{backend_capabilities::BackendCapabilities, inventory::Module},
+        domain::{ModuleRules, MountMode},
     };
 
     fn module_with_layout(base: &Path, id: &str, dirs: &[&str], rules: ModuleRules) -> Module {
@@ -684,6 +647,7 @@ mod tests {
             &[overlay, magic, ignored],
             &storage_root,
             &system_root,
+            &BackendCapabilities::default(),
         )
         .expect("planner should succeed");
 
@@ -728,6 +692,7 @@ mod tests {
             &[beta, alpha],
             &storage_root,
             &system_root,
+            &BackendCapabilities::default(),
         )
         .expect("planner should succeed");
 
@@ -783,6 +748,7 @@ mod tests {
             }],
             &storage_root,
             &system_root,
+            &BackendCapabilities::default(),
         )
         .expect("planner should succeed");
 
@@ -815,8 +781,14 @@ mod tests {
             },
         );
 
-        let plan = generate_with_root(&Config::default(), &[module], &storage_root, &system_root)
-            .expect("planner should succeed");
+        let plan = generate_with_root(
+            &Config::default(),
+            &[module],
+            &storage_root,
+            &system_root,
+            &BackendCapabilities::default(),
+        )
+        .expect("planner should succeed");
 
         assert!(plan.overlay_ops.is_empty());
         assert!(plan.overlay_module_ids.is_empty());
@@ -845,8 +817,14 @@ mod tests {
             ..Config::default()
         };
 
-        let plan = generate_with_root(&config, &[module], &storage_root, &system_root)
-            .expect("planner should succeed");
+        let plan = generate_with_root(
+            &config,
+            &[module],
+            &storage_root,
+            &system_root,
+            &BackendCapabilities::default(),
+        )
+        .expect("planner should succeed");
 
         assert_eq!(plan.overlay_ops.len(), 1);
         assert_eq!(plan.overlay_ops[0].partition_name, "my_custom");
@@ -876,8 +854,14 @@ mod tests {
             ModuleRules::default(),
         );
 
-        let plan = generate_with_root(&Config::default(), &[module], &storage_root, &system_root)
-            .expect("planner should succeed");
+        let plan = generate_with_root(
+            &Config::default(),
+            &[module],
+            &storage_root,
+            &system_root,
+            &BackendCapabilities::default(),
+        )
+        .expect("planner should succeed");
 
         assert_eq!(plan.overlay_ops.len(), 1);
         assert_eq!(plan.overlay_ops[0].partition_name, "vendor");
@@ -918,8 +902,14 @@ mod tests {
             rules: ModuleRules::default(),
         };
 
-        let plan = generate_with_root(&Config::default(), &[module], &storage_root, &system_root)
-            .expect("planner should succeed");
+        let plan = generate_with_root(
+            &Config::default(),
+            &[module],
+            &storage_root,
+            &system_root,
+            &BackendCapabilities::default(),
+        )
+        .expect("planner should succeed");
 
         assert_eq!(plan.overlay_ops.len(), 1);
         assert_eq!(plan.overlay_ops[0].partition_name, "product");

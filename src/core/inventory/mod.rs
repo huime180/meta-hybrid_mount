@@ -19,7 +19,6 @@ pub mod listing;
 
 pub use discovery::*;
 
-pub use crate::conf::config::MountMode;
 use crate::defs;
 
 pub fn is_reserved_module_dir(id: &str) -> bool {

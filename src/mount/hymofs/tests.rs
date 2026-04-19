@@ -26,11 +26,12 @@ use super::{
     runtime::{auxiliary_features_requested, hymofs_runtime_requested, mount_mapping_requested},
 };
 use crate::{
-    conf::{
-        config::{Config, ModuleRules, MountMode},
-        schema::HymoMapsRuleConfig,
+    conf::{config::Config, schema::HymoMapsRuleConfig},
+    core::{
+        inventory::Module,
+        ops::plan::{HymofsAddRule, HymofsMergeRule, MountPlan},
     },
-    core::{inventory::Module, ops::planner::MountPlan},
+    domain::{ModuleRules, MountMode},
 };
 
 fn make_module(
@@ -341,12 +342,12 @@ fn exact_file_targets_from_multiple_modules_are_preserved() {
 #[test]
 fn compiled_tree_dump_includes_actions_sources_and_modules() {
     let compiled = CompiledRules {
-        add_rules: vec![crate::core::ops::planner::HymofsAddRule {
+        add_rules: vec![HymofsAddRule {
             target: "/system/bin/sh".to_string(),
             source: PathBuf::from("/dev/hymo_mirror/mod_a/system/bin/sh"),
             file_type: libc::DT_REG as i32,
         }],
-        merge_rules: vec![crate::core::ops::planner::HymofsMergeRule {
+        merge_rules: vec![HymofsMergeRule {
             target: "/system/etc".to_string(),
             source: PathBuf::from("/dev/hymo_mirror/mod_b/system/etc"),
         }],

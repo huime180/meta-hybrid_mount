@@ -19,7 +19,10 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::defs;
+use crate::{
+    defs,
+    domain::{DefaultMode, ModuleRules},
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -27,58 +30,6 @@ pub enum OverlayMode {
     Tmpfs,
     #[default]
     Ext4,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum DefaultMode {
-    #[default]
-    Overlay,
-    Magic,
-    Hymofs,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum MountMode {
-    #[default]
-    Overlay,
-    Magic,
-    Hymofs,
-    Ignore,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModuleRules {
-    #[serde(default)]
-    pub default_mode: MountMode,
-    #[serde(default)]
-    pub paths: HashMap<String, MountMode>,
-}
-
-impl ModuleRules {
-    pub fn get_mode(&self, relative_path: &str) -> MountMode {
-        let mut best_match = None;
-        let mut best_len = 0usize;
-
-        for (path, mode) in &self.paths {
-            let is_exact = relative_path == path;
-            let is_prefix = relative_path.len() > path.len()
-                && relative_path.starts_with(path)
-                && relative_path.as_bytes().get(path.len()) == Some(&b'/');
-
-            if (is_exact || is_prefix) && path.len() >= best_len {
-                best_match = Some(mode.clone());
-                best_len = path.len();
-            }
-        }
-
-        if let Some(mode) = best_match {
-            return mode;
-        }
-
-        self.default_mode.clone()
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -339,9 +290,9 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::PathBuf};
+    use std::path::PathBuf;
 
-    use super::{Config, HymoFsConfig, MountMode};
+    use super::{Config, HymoFsConfig};
     use crate::defs;
 
     #[test]
@@ -359,21 +310,6 @@ enable_overlay_fallback = true
 "#;
         let cfg: Config = toml::from_str(content).expect("failed to parse toml");
         assert!(cfg.enable_overlay_fallback);
-    }
-
-    #[test]
-    fn module_rules_prefers_longest_prefix_match() {
-        let rules = super::ModuleRules {
-            default_mode: MountMode::Overlay,
-            paths: HashMap::from([
-                ("system".to_string(), MountMode::Magic),
-                ("system/bin".to_string(), MountMode::Hymofs),
-            ]),
-        };
-
-        assert_eq!(rules.get_mode("system/bin"), MountMode::Hymofs);
-        assert_eq!(rules.get_mode("system/bin/sh"), MountMode::Hymofs);
-        assert_eq!(rules.get_mode("system/lib"), MountMode::Magic);
     }
 
     #[test]

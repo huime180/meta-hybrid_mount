@@ -23,12 +23,16 @@ use super::fallback;
 use crate::mount::umount_mgr;
 use crate::{
     conf::config,
-    core::ops::planner::OverlayOperation,
+    core::{hymofs_coordinator::HymofsCoordinator, ops::plan::OverlayOperation},
     defs,
-    mount::{hymofs as hymofs_mount, overlayfs},
+    mount::overlayfs,
 };
 
-pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> Result<Vec<String>> {
+pub(super) fn mount_overlay(
+    op: &OverlayOperation,
+    config: &config::Config,
+    hymofs: &HymofsCoordinator<'_>,
+) -> Result<Vec<String>> {
     let involved_modules = fallback::collect_involved_modules(op);
 
     crate::scoped_log!(
@@ -86,18 +90,7 @@ pub(super) fn mount_overlay(op: &OverlayOperation, config: &config::Config) -> R
         mount_source
     );
 
-    if config.hymofs.enabled
-        && hymofs_mount::can_operate(config)
-        && let Err(err) = crate::sys::hymofs::hide_overlay_xattrs(Path::new(&op.target))
-    {
-        crate::scoped_log!(
-            warn,
-            "executor:overlay",
-            "hide overlay xattrs failed: target={}, error={:#}",
-            op.target,
-            err
-        );
-    }
+    hymofs.hide_overlay_xattrs(Path::new(&op.target));
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if !config.disable_umount {

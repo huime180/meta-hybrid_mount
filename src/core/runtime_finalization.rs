@@ -22,7 +22,7 @@ use crate::{
     conf::config::Config,
     core::{
         module_status,
-        ops::{executor::ExecutionResult, planner::MountPlan},
+        ops::{executor::ExecutionResult, plan::MountPlan},
         runtime_state::RuntimeState,
     },
     defs,

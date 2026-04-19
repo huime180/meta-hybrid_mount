@@ -18,7 +18,7 @@ use std::collections::HashSet;
 
 use crate::{
     conf::config,
-    core::ops::planner::{MountPlan, OverlayOperation},
+    core::ops::plan::{MountPlan, OverlayOperation},
     mount::magic_mount,
     utils,
 };

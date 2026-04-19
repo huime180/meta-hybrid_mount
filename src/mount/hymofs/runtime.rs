@@ -29,7 +29,7 @@ use super::{
 };
 use crate::{
     conf::{config, schema},
-    core::{inventory::Module, ops::planner::MountPlan, user_hide_rules},
+    core::{inventory::Module, ops::plan::MountPlan, user_hide_rules},
     defs,
     sys::hymofs::{
         self, HYMO_FEATURE_CMDLINE_SPOOF, HYMO_FEATURE_KSTAT_SPOOF, HYMO_FEATURE_MAPS_SPOOF,

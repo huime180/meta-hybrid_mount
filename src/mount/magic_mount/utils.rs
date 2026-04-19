@@ -28,9 +28,9 @@ use rustix::fs::{Gid, Mode, Uid, chmod, chown};
 use rustix::mount::mount_bind;
 
 use crate::{
-    conf::config::{ModuleRules, MountMode},
     core::inventory::{self, Module},
     defs,
+    domain::{ModuleRules, MountMode},
     mount::node::Node,
     sys::fs::{lgetfilecon, lsetfilecon},
     utils::validate_module_id,
@@ -527,8 +527,8 @@ mod tests {
 
     use super::collect_module_files;
     use crate::{
-        conf::config::{ModuleRules, MountMode},
         core::inventory::Module,
+        domain::{ModuleRules, MountMode},
     };
 
     #[test]

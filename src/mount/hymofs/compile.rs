@@ -33,10 +33,11 @@ use super::common::build_managed_partitions;
 use crate::{
     conf::config,
     core::{
-        inventory::{Module, MountMode},
-        ops::planner::{HymofsAddRule, HymofsMergeRule, MountPlan},
+        inventory::Module,
+        ops::plan::{HymofsAddRule, HymofsMergeRule, MountPlan},
     },
     defs,
+    domain::MountMode,
 };
 
 #[derive(Debug, Default)]

@@ -24,8 +24,9 @@ use anyhow::Result;
 use serde::Deserialize;
 
 use crate::{
-    conf::config::{self, ModuleRules, MountMode},
+    conf::config,
     core::inventory,
+    domain::{ModuleRules, MountMode},
 };
 
 #[derive(Deserialize)]
@@ -36,11 +37,7 @@ struct PartialRules {
 
 fn load_module_rules(module_dir: &Path, module_id: &str, cfg: &config::Config) -> ModuleRules {
     let mut rules = ModuleRules {
-        default_mode: match cfg.default_mode {
-            config::DefaultMode::Overlay => MountMode::Overlay,
-            config::DefaultMode::Magic => MountMode::Magic,
-            config::DefaultMode::Hymofs => MountMode::Hymofs,
-        },
+        default_mode: cfg.default_mode.as_mount_mode(),
         ..Default::default()
     };
 

@@ -14,26 +14,35 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-mod conf;
-mod core;
-mod defs;
-mod domain;
-mod mount;
-mod sys;
-mod utils;
+use std::path::PathBuf;
 
-use anyhow::Result;
-use clap::Parser;
-use conf::cli::Cli;
-use mimalloc::MiMalloc;
+#[derive(Debug, Clone)]
+pub struct OverlayOperation {
+    pub partition_name: String,
+    pub target: String,
+    pub lowerdirs: Vec<PathBuf>,
+}
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+#[derive(Debug, Clone)]
+pub struct HymofsAddRule {
+    pub target: String,
+    pub source: PathBuf,
+    pub file_type: i32,
+}
 
-fn main() -> Result<()> {
-    if std::env::var("KSU_LATE_LOAD").is_ok() && std::env::var("KSU").is_ok() {
-        panic!("! unsupported late load mode");
-    }
-    let cli = Cli::parse();
-    core::entry::run(cli)
+#[derive(Debug, Clone)]
+pub struct HymofsMergeRule {
+    pub target: String,
+    pub source: PathBuf,
+}
+
+#[derive(Debug, Default)]
+pub struct MountPlan {
+    pub overlay_ops: Vec<OverlayOperation>,
+    pub hymofs_add_rules: Vec<HymofsAddRule>,
+    pub hymofs_merge_rules: Vec<HymofsMergeRule>,
+    pub hymofs_hide_rules: Vec<String>,
+    pub overlay_module_ids: Vec<String>,
+    pub magic_module_ids: Vec<String>,
+    pub hymofs_module_ids: Vec<String>,
 }

@@ -27,12 +27,12 @@ use crate::mount::umount_mgr;
 use crate::{
     conf::config,
     core::{
+        hymofs_coordinator::HymofsCoordinator,
         inventory::Module,
-        ops::planner::MountPlan,
+        ops::plan::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
         runtime_state::MountStatistics,
     },
-    mount::hymofs,
 };
 
 pub struct ExecutionResult {
@@ -69,9 +69,10 @@ impl Executor {
         let mut final_overlay_partitions: BTreeSet<String> = BTreeSet::new();
         let planned_hymofs_ids = plan.hymofs_module_ids.clone();
         let mut mount_stats = MountStatistics::default();
+        let hymofs = HymofsCoordinator::new(config);
 
         let hymofs_available = if config.hymofs.enabled {
-            hymofs::reset_runtime(config).map_err(|err| {
+            hymofs.reset_runtime().map_err(|err| {
                 ModuleStageFailure::new(
                     FailureStage::Execute,
                     planned_hymofs_ids.clone(),
@@ -106,7 +107,7 @@ impl Executor {
                     op.target,
                     op.lowerdirs.len()
                 );
-                match overlay::mount_overlay(op, config) {
+                match overlay::mount_overlay(op, config, &hymofs) {
                     Ok(ids) => {
                         crate::scoped_log!(
                             info,
@@ -239,7 +240,7 @@ impl Executor {
         }
 
         let hymofs_runtime_enabled = if config.hymofs.enabled {
-            hymofs::apply(plan, modules, config).map_err(|err| {
+            hymofs.apply_runtime(plan, modules).map_err(|err| {
                 ModuleStageFailure::new(
                     FailureStage::Execute,
                     final_hymofs_ids.clone(),
@@ -296,7 +297,7 @@ mod tests {
     use super::fallback;
     use crate::{
         conf::config::{Config, OverlayMode},
-        core::ops::planner::{MountPlan, OverlayOperation},
+        core::ops::plan::{MountPlan, OverlayOperation},
         mount::magic_mount::MagicMountModuleFailure,
     };
 

@@ -14,26 +14,30 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-mod conf;
-mod core;
-mod defs;
-mod domain;
-mod mount;
-mod sys;
-mod utils;
+use crate::{conf::config::Config, sys::hymofs};
 
-use anyhow::Result;
-use clap::Parser;
-use conf::cli::Cli;
-use mimalloc::MiMalloc;
+#[derive(Debug, Clone, Default)]
+pub struct BackendCapabilities {
+    hymofs_status: String,
+    hymofs_usable: bool,
+}
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+impl BackendCapabilities {
+    pub fn detect(config: &Config) -> Self {
+        let status = hymofs::check_status();
 
-fn main() -> Result<()> {
-    if std::env::var("KSU_LATE_LOAD").is_ok() && std::env::var("KSU").is_ok() {
-        panic!("! unsupported late load mode");
+        Self {
+            hymofs_status: hymofs::status_name(status).to_string(),
+            hymofs_usable: config.hymofs.enabled
+                && hymofs::can_operate(config.hymofs.ignore_protocol_mismatch),
+        }
     }
-    let cli = Cli::parse();
-    core::entry::run(cli)
+
+    pub fn can_use_hymofs(&self) -> bool {
+        self.hymofs_usable
+    }
+
+    pub fn hymofs_status(&self) -> &str {
+        &self.hymofs_status
+    }
 }
