@@ -53,6 +53,9 @@ pub enum LiveContextSourceKind {
 pub enum LiveContextApplyOutcome {
     SkippedUnmanaged,
     MissingTarget,
+    MissingSet {
+        reason: String,
+    },
     MissingContext {
         target_path: PathBuf,
         target_dir: PathBuf,
@@ -512,6 +515,19 @@ pub fn apply_best_effort_live_context_with_cache(
     if let Some((source, context)) =
         resolve_live_target_context_cached(&target_path, &target_root, dst_is_dir, cache)
     {
+        if (context.contains("same_process_hal_file")
+            | context.contains("vendor_file")
+            | context.contains("lib_file"))
+            && dst.ends_with("so")
+        {
+            return LiveContextApplyOutcome::MissingSet {
+                reason: format!(
+                    "skip set {} to {}, because it like the driver",
+                    dst.display(),
+                    context
+                ),
+            };
+        }
         let kind = live_context_source_kind(&target_path, &source);
 
         if dst_is_dir {
