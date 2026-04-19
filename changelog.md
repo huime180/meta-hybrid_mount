@@ -1,4 +1,82 @@
 
+## v3.5.0
+
+
+### <!-- 1 --> Features
+
+- `lkm` Fallback to ksud insmod when finit_module fails on KernelSU When finit_module fails and the runtime environment is KernelSU, retry loading the HymoFS LKM via `ksud debug insmod`. Falls back through /data/adb/ksud then $PATH, and surfaces both failures on error.
+
+- `nuke` Add strict verification for apatch nuke execution
+
+- `xattr` Add support for legacy system file context in firmware paths
+
+- `xattr` Refactor path resolution and context handling for managed partitions
+
+- `xattr` Add function to determine if live context should apply to managed partitions
+
+
+
+### <!-- 2 --> Fixes
+
+- `lkm` Use 'ksud insmod' instead of 'ksud debug insmod'
+
+- Improve live SELinux context application
+
+- Collapse xattr let-chains for clippy
+
+- Try fix GPU driver selinux is error
+
+- Fix xattr
+
+
+
+### <!-- 4 --> Refactors
+
+- `xattr` Clean up formatting and improve readability in path resolution functions
+
+- Improve code formatting and readability across multiple files
+
+- Separate domain models and hymofs orchestration
+
+- Enhance cleanup logic and add mounted path check
+
+- Remove unused LiveContextCache and related functions
+
+- `core` Simplify runtime state finalization
+
+- `xattr` Remove unused lgetxattr import
+
+
+
+### <!-- 8 --> Maintenance
+
+- Remove unused test modules and associated test cases across various files - Deleted test modules and their corresponding tests from `user_hide_rules.rs`, `mod.rs`, `compile.rs`, `mod.rs`, `runtime.rs`, `tests.rs`, `utils.rs`, `file.rs`, `hymofs.rs`, `lkm.rs`, and `node.rs`. - Cleaned up code by removing commented-out test code and unnecessary imports. - This cleanup improves code readability and maintainability by eliminating redundant test cases that are no longer needed.
+
+- Revert "Speed up CI by skipping hymofs LKM builds by default" This reverts commit 58e8b20423a6c1cdf5e344dd7686f300b9c06ca3.
+
+
+
+### <!-- 9 --> Other
+
+- Switch to GPLv2 licence
+
+- Using hawkeye to manage licence
+
+- Refactor sync and runtime finalization logic - Updated `perform_sync` to use `defs::managed_partition_names` for managed partitions. - Removed the `build_managed_partitions` function from `sync.rs` and replaced its usage. - Modified `build_runtime_state` to accept `ExecutionResult` instead of `MountPlan`. - Changed `collect_active_mounts` to use `ExecutionResult` for active mounts collection. - Introduced `managed_partition_names` and `managed_partition_set` in `defs.rs` for better partition management. - Refactored `build_managed_partitions` in `hymofs/common.rs` to utilize the new `managed_partition_set`. - Enhanced `collect_module_files` in `magic_mount/utils.rs` to accept `magic_modules` and `use_hymofs` parameters. - Implemented path normalization functions in `hymofs/compile.rs` for better path handling. - Updated `sync_dir` in `file.rs` to use a live context cache for improved performance. - Refined extended attribute handling in `xattr.rs` with better error logging and caching. - Removed deprecated functions in `hymofs.rs` to streamline the codebase.
+
+- Simplify LiveContextSourceKind display
+
+- Opt TMPFS_XATTR_SUPPORTED lock using AtomicBool, instead of OnceLock
+
+- Refactor CLI handlers and remove legacy hymofs compatibility
+
+- Split core API payload builders by domain
+
+- Speed up CI by skipping hymofs LKM builds by default
+
+
+
+
 ## v3.4.7
 
 
