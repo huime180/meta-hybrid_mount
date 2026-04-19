@@ -28,9 +28,6 @@ use anyhow::{Context, Result, bail};
 use rustix::fs::ioctl_ficlone;
 use walkdir::WalkDir;
 
-use super::xattr::{
-    LiveContextCache, apply_best_effort_live_context_with_cache, internal_copy_extended_attributes,
-};
 use crate::defs;
 
 #[derive(Debug, Default)]
@@ -117,7 +114,6 @@ fn native_cp_r(
     dst: &Path,
     relative: &Path,
     managed_partitions: &[String],
-    live_context_cache: &mut LiveContextCache,
     visited: &mut HashSet<(u64, u64)>,
     stats: &mut SyncDirStats,
 ) -> Result<()> {
@@ -128,19 +124,16 @@ fn native_cp_r(
         if let Ok(src_meta) = src.metadata() {
             let _ = fs::set_permissions(dst, src_meta.permissions());
         }
-        let _ = internal_copy_extended_attributes(src, dst);
-        let _ = apply_best_effort_live_context_with_cache(
-            dst,
-            relative,
-            managed_partitions,
-            live_context_cache,
-        );
     }
 
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let file_name = entry.file_name();
+        if file_name.as_os_str() == defs::REPLACE_DIR_FILE_NAME {
+            stats.opaque_dirs.push(dst.to_path_buf());
+            continue;
+        }
         let dst_path = dst.join(&file_name);
         let next_relative = relative.join(&file_name);
 
@@ -162,7 +155,6 @@ fn native_cp_r(
                 &dst_path,
                 &next_relative,
                 managed_partitions,
-                live_context_cache,
                 visited,
                 stats,
             )?;
@@ -182,21 +174,6 @@ fn native_cp_r(
         } else {
             reflink_or_copy(&src_path, &dst_path)?;
         }
-
-        if ft.is_file()
-            && file_name.as_os_str() == defs::REPLACE_DIR_FILE_NAME
-            && let Some(parent) = dst_path.parent()
-        {
-            stats.opaque_dirs.push(parent.to_path_buf());
-        }
-
-        let _ = internal_copy_extended_attributes(&src_path, &dst_path);
-        let _ = apply_best_effort_live_context_with_cache(
-            &dst_path,
-            &next_relative,
-            managed_partitions,
-            live_context_cache,
-        );
     }
     Ok(())
 }
@@ -206,7 +183,6 @@ pub fn sync_dir(src: &Path, dst: &Path, managed_partitions: &[String]) -> Result
         return Ok(SyncDirStats::default());
     }
     ensure_dir_exists(dst)?;
-    let mut live_context_cache = LiveContextCache::default();
     let mut visited = HashSet::new();
     let mut stats = SyncDirStats::default();
     native_cp_r(
@@ -214,7 +190,6 @@ pub fn sync_dir(src: &Path, dst: &Path, managed_partitions: &[String]) -> Result
         dst,
         Path::new(""),
         managed_partitions,
-        &mut live_context_cache,
         &mut visited,
         &mut stats,
     )
@@ -276,6 +251,7 @@ mod tests {
 
         assert!(stats.has_mount_content);
         assert_eq!(stats.opaque_dirs, vec![dst.join("system/bin")]);
+        assert!(!dst.join("system/bin/.replace").exists());
     }
 
     #[test]
