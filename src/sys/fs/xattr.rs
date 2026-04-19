@@ -43,6 +43,30 @@ pub struct LiveContextCache {
     resolved_contexts: HashMap<PathBuf, Option<(PathBuf, String)>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveContextSourceKind {
+    Exact,
+    AncestorFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiveContextApplyOutcome {
+    SkippedUnmanaged,
+    MissingTarget,
+    MissingContext {
+        target_path: PathBuf,
+        target_dir: PathBuf,
+    },
+    Applied {
+        source: PathBuf,
+        kind: LiveContextSourceKind,
+    },
+    ApplyFailed {
+        source: PathBuf,
+        kind: LiveContextSourceKind,
+    },
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
     if let Ok(ctx) = lgetfilecon(src) {
@@ -98,7 +122,7 @@ fn copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn copy_extended_attributes(_src: &Path, _dst: &Path) -> Result<()> {
-    unimplemented!();
+    Ok(())
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -114,7 +138,7 @@ pub fn set_overlay_opaque<P: AsRef<Path>>(path: P) -> Result<()> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn set_overlay_opaque<P: AsRef<Path>>(_path: P) -> Result<()> {
-    unimplemented!();
+    Ok(())
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -137,7 +161,7 @@ pub fn lsetfilecon<P: AsRef<Path>>(path: P, con: &str) -> Result<()> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn lsetfilecon<P: AsRef<Path>>(_path: P, _con: &str) -> Result<()> {
-    unimplemented!();
+    anyhow::bail!("SELinux context writes are only supported on linux/android");
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -155,7 +179,7 @@ pub fn lgetfilecon<P: AsRef<Path>>(path: P) -> Result<String> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn lgetfilecon<P: AsRef<Path>>(_path: P) -> Result<String> {
-    unimplemented!();
+    anyhow::bail!("SELinux context reads are only supported on linux/android");
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -190,7 +214,7 @@ pub fn is_overlay_xattr_supported() -> Result<bool> {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn is_overlay_xattr_supported() -> Result<bool> {
-    unimplemented!();
+    Ok(false)
 }
 
 pub fn internal_copy_extended_attributes(src: &Path, dst: &Path) -> Result<()> {
@@ -280,32 +304,60 @@ fn resolve_target_path_cached(path: &Path, cache: &mut LiveContextCache) -> Path
     resolved
 }
 
+fn resolve_live_target_with_root_cached(
+    relative: &Path,
+    managed_partitions: &[String],
+    root: &Path,
+    dst_is_dir: bool,
+    cache: &mut LiveContextCache,
+) -> Option<(PathBuf, PathBuf)> {
+    let components: Vec<_> = relative.components().collect();
+    let start_idx = managed_partition_start(relative, managed_partitions)?;
+
+    let partition_root = root.join(components[start_idx].as_os_str());
+    if fs::symlink_metadata(&partition_root).is_err() {
+        return None;
+    }
+
+    let resolved_partition_root = resolve_target_path_cached(&partition_root, cache);
+    let mut current = resolved_partition_root.clone();
+    let tail = &components[start_idx + 1..];
+
+    if tail.is_empty() {
+        return Some((resolved_partition_root, current));
+    }
+
+    let resolve_count = if dst_is_dir {
+        tail.len()
+    } else {
+        tail.len().saturating_sub(1)
+    };
+
+    for component in tail.iter().take(resolve_count) {
+        current = resolve_target_path_cached(&current.join(component.as_os_str()), cache);
+    }
+
+    let target_path = if dst_is_dir {
+        current
+    } else {
+        tail.last()
+            .map(|leaf| current.join(leaf.as_os_str()))
+            .unwrap_or(current)
+    };
+
+    Some((resolved_partition_root, target_path))
+}
+
 #[cfg(test)]
 fn resolve_live_target_path_with_root(
     relative: &Path,
     managed_partitions: &[String],
     root: &Path,
+    dst_is_dir: bool,
 ) -> Option<PathBuf> {
     let mut cache = LiveContextCache::default();
-    resolve_live_target_path_with_root_cached(relative, managed_partitions, root, &mut cache)
-}
-
-fn resolve_live_target_path_with_root_cached(
-    relative: &Path,
-    managed_partitions: &[String],
-    root: &Path,
-    cache: &mut LiveContextCache,
-) -> Option<PathBuf> {
-    let components: Vec<_> = relative.components().collect();
-    let start_idx = managed_partition_start(relative, managed_partitions)?;
-
-    let mut current =
-        resolve_target_path_cached(&root.join(components[start_idx].as_os_str()), cache);
-    for component in components.iter().skip(start_idx + 1) {
-        current = resolve_target_path_cached(&current.join(component.as_os_str()), cache);
-    }
-
-    Some(current)
+    resolve_live_target_with_root_cached(relative, managed_partitions, root, dst_is_dir, &mut cache)
+        .map(|(_, target_path)| target_path)
 }
 
 fn resolved_target_directory(target_path: &Path, dst_is_dir: bool) -> PathBuf {
@@ -332,6 +384,7 @@ fn prefer_exact_target_context_path(target_path: &Path, dst_is_dir: bool) -> Pat
 
 fn resolve_live_target_directory_context_cached(
     target_dir: &Path,
+    target_root: &Path,
     cache: &mut LiveContextCache,
 ) -> Option<(PathBuf, String)> {
     if let Some(cached) = cache.resolved_contexts.get(target_dir) {
@@ -351,7 +404,7 @@ fn resolve_live_target_directory_context_cached(
             break Some((current.clone(), context));
         }
 
-        if current == Path::new("/") {
+        if current == target_root {
             break None;
         }
 
@@ -374,6 +427,7 @@ fn resolve_live_target_directory_context_cached(
 
 fn resolve_live_target_context_cached(
     target_path: &Path,
+    target_root: &Path,
     dst_is_dir: bool,
     cache: &mut LiveContextCache,
 ) -> Option<(PathBuf, String)> {
@@ -393,11 +447,19 @@ fn resolve_live_target_context_cached(
     }
 
     let target_dir = prefer_exact_target_context_path(target_path, dst_is_dir);
-    let resolved = resolve_live_target_directory_context_cached(&target_dir, cache);
+    let resolved = resolve_live_target_directory_context_cached(&target_dir, target_root, cache);
     cache
         .resolved_contexts
         .insert(target_path.to_path_buf(), resolved.clone());
     resolved
+}
+
+fn live_context_source_kind(target_path: &Path, source: &Path) -> LiveContextSourceKind {
+    if source == target_path {
+        LiveContextSourceKind::Exact
+    } else {
+        LiveContextSourceKind::AncestorFallback
+    }
 }
 
 pub fn apply_best_effort_live_context_with_cache(
@@ -405,9 +467,9 @@ pub fn apply_best_effort_live_context_with_cache(
     relative: &Path,
     managed_partitions: &[String],
     cache: &mut LiveContextCache,
-) -> Result<()> {
+) -> LiveContextApplyOutcome {
     if !should_apply_live_context(relative, managed_partitions) {
-        return Ok(());
+        return LiveContextApplyOutcome::SkippedUnmanaged;
     }
 
     let relative_display = if relative.as_os_str().is_empty() {
@@ -419,10 +481,11 @@ pub fn apply_best_effort_live_context_with_cache(
         .map(|metadata| metadata.file_type().is_dir())
         .unwrap_or_else(|_| dst.is_dir());
 
-    let Some(target_path) = resolve_live_target_path_with_root_cached(
+    let Some((target_root, target_path)) = resolve_live_target_with_root_cached(
         relative,
         managed_partitions,
         Path::new("/"),
+        dst_is_dir,
         cache,
     ) else {
         if dst_is_dir {
@@ -433,50 +496,105 @@ pub fn apply_best_effort_live_context_with_cache(
                 relative_display,
                 dst.display()
             );
+        } else {
+            crate::scoped_log!(
+                debug,
+                "selinux:context",
+                "target resolve failed: relative={}, dst={}",
+                relative_display,
+                dst.display()
+            );
         }
-        return Ok(());
+        return LiveContextApplyOutcome::MissingTarget;
     };
 
     let target_dir = resolved_target_directory(&target_path, dst_is_dir);
 
     if let Some((source, context)) =
-        resolve_live_target_context_cached(&target_path, dst_is_dir, cache)
+        resolve_live_target_context_cached(&target_path, &target_root, dst_is_dir, cache)
     {
+        let kind = live_context_source_kind(&target_path, &source);
+
         if dst_is_dir {
             crate::scoped_log!(
                 info,
                 "selinux:context",
-                "resolved: relative={}, dst={}, target_dir={}, live_source={}, live_context={}",
+                "resolved: relative={}, dst={}, target_path={}, target_dir={}, live_source={}, live_context={}, source_kind={}",
                 relative_display,
                 dst.display(),
+                target_path.display(),
                 target_dir.display(),
                 source.display(),
-                context
+                context,
+                match kind {
+                    LiveContextSourceKind::Exact => "exact",
+                    LiveContextSourceKind::AncestorFallback => "ancestor_fallback",
+                }
+            );
+        } else {
+            crate::scoped_log!(
+                debug,
+                "selinux:context",
+                "resolved: relative={}, dst={}, target_path={}, target_dir={}, live_source={}, live_context={}, source_kind={}",
+                relative_display,
+                dst.display(),
+                target_path.display(),
+                target_dir.display(),
+                source.display(),
+                context,
+                match kind {
+                    LiveContextSourceKind::Exact => "exact",
+                    LiveContextSourceKind::AncestorFallback => "ancestor_fallback",
+                }
             );
         }
+
         if let Err(err) = lsetfilecon(dst, &context) {
             crate::scoped_log!(
                 warn,
                 "selinux:context",
-                "apply failed: relative={}, dst={}, live_source={}, error={:#}",
+                "apply failed: relative={}, dst={}, live_source={}, source_kind={}, error={:#}",
                 relative_display,
                 dst.display(),
                 source.display(),
+                match kind {
+                    LiveContextSourceKind::Exact => "exact",
+                    LiveContextSourceKind::AncestorFallback => "ancestor_fallback",
+                },
                 err
             );
+            return LiveContextApplyOutcome::ApplyFailed { source, kind };
         }
-    } else if dst_is_dir {
+
+        return LiveContextApplyOutcome::Applied { source, kind };
+    }
+
+    if dst_is_dir {
         crate::scoped_log!(
             warn,
             "selinux:context",
-            "context resolve failed: relative={}, dst={}, target_dir={}, live_source=<none>, live_context=<none>",
+            "context resolve failed: relative={}, dst={}, target_path={}, target_dir={}, live_source=<none>, live_context=<none>",
             relative_display,
             dst.display(),
+            target_path.display(),
+            target_dir.display()
+        );
+    } else {
+        crate::scoped_log!(
+            debug,
+            "selinux:context",
+            "context resolve failed: relative={}, dst={}, target_path={}, target_dir={}, live_source=<none>, live_context=<none>",
+            relative_display,
+            dst.display(),
+            target_path.display(),
             target_dir.display()
         );
     }
 
-    Ok(())
+    LiveContextApplyOutcome::MissingContext {
+        target_path,
+        target_dir,
+    }
 }
 
 #[cfg(test)]
@@ -488,8 +606,47 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
+        LiveContextApplyOutcome, LiveContextCache, apply_best_effort_live_context_with_cache,
         resolve_live_target_path_with_root, resolved_target_directory, should_apply_live_context,
     };
+
+    #[test]
+    fn apply_best_effort_live_context_skips_unmanaged_paths() {
+        let dst_root = tempdir().expect("failed to create temp root");
+        let dst = dst_root.path().join("module.prop");
+        fs::write(&dst, "name=demo").expect("failed to create dst file");
+
+        let managed = vec!["system".to_string(), "vendor".to_string()];
+        let mut cache = LiveContextCache::default();
+
+        let outcome = apply_best_effort_live_context_with_cache(
+            &dst,
+            Path::new("module.prop"),
+            &managed,
+            &mut cache,
+        );
+
+        assert_eq!(outcome, LiveContextApplyOutcome::SkippedUnmanaged);
+    }
+
+    #[test]
+    fn apply_best_effort_live_context_reports_missing_target_for_absent_partition_root() {
+        let dst_root = tempdir().expect("failed to create temp root");
+        let dst = dst_root.path().join("system");
+        fs::create_dir_all(&dst).expect("failed to create dst dir");
+
+        let managed = vec!["__codex_missing_partition__".to_string()];
+        let mut cache = LiveContextCache::default();
+
+        let outcome = apply_best_effort_live_context_with_cache(
+            &dst,
+            Path::new("__codex_missing_partition__/path"),
+            &managed,
+            &mut cache,
+        );
+
+        assert_eq!(outcome, LiveContextApplyOutcome::MissingTarget);
+    }
 
     #[test]
     fn resolve_live_target_path_follows_system_vendor_symlink() {
@@ -512,10 +669,51 @@ mod tests {
             Path::new("module_a/system/vendor/firmware/gen80000_sqe.fw"),
             &managed,
             &rootfs,
+            false,
         )
         .expect("target should resolve");
 
         assert_eq!(target, rootfs.join("vendor/firmware/gen80000_sqe.fw"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_live_target_path_preserves_leaf_symlink_for_file_nodes() {
+        let root = tempdir().expect("failed to create temp root");
+        let rootfs = root.path().join("rootfs");
+        fs::create_dir_all(rootfs.join("system/bin")).expect("failed to create /system/bin");
+        fs::write(rootfs.join("system/bin/toybox"), b"toybox").expect("failed to write toybox");
+        symlink("toybox", rootfs.join("system/bin/sh"))
+            .expect("failed to create /system/bin/sh symlink");
+
+        let managed = vec!["system".to_string()];
+        let target = resolve_live_target_path_with_root(
+            Path::new("system/bin/sh"),
+            &managed,
+            &rootfs,
+            false,
+        )
+        .expect("target should resolve");
+
+        assert_eq!(target, rootfs.join("system/bin/sh"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_live_target_path_resolves_leaf_symlink_for_directory_nodes() {
+        let root = tempdir().expect("failed to create temp root");
+        let rootfs = root.path().join("rootfs");
+        fs::create_dir_all(rootfs.join("system")).expect("failed to create /system");
+        fs::create_dir_all(rootfs.join("vendor")).expect("failed to create /vendor");
+        symlink("../vendor", rootfs.join("system/vendor"))
+            .expect("failed to create /system/vendor symlink");
+
+        let managed = vec!["system".to_string(), "vendor".to_string()];
+        let target =
+            resolve_live_target_path_with_root(Path::new("system/vendor"), &managed, &rootfs, true)
+                .expect("target should resolve");
+
+        assert_eq!(target, rootfs.join("vendor"));
     }
 
     #[test]

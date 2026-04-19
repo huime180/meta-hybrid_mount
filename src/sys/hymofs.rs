@@ -766,7 +766,7 @@ fn ioctl_error_context(name: &str, request: HymoIoctlRequest, err: Errno) -> Str
 
     format!(
         "HymoFS ioctl failed: name={name}, opcode=0x{:x}, errno={} ({hint})",
-        request as u64,
+        request,
         err.raw_os_error()
     )
 }
@@ -1051,7 +1051,7 @@ pub fn set_cmdline(cmdline: &HymoSpoofCmdline) -> Result<()> {
                     let context = format!(
                         "{}; compat_retry_opcode=0x{:x}, compat_errno={}",
                         ioctl_error_context("set_cmdline", HYMO_IOC_SET_CMDLINE, err),
-                        HYMO_IOC_SET_CMDLINE_COMPAT as u64,
+                        HYMO_IOC_SET_CMDLINE_COMPAT,
                         compat_err.raw_os_error()
                     );
                     return Err(anyhow::Error::new(compat_err).context(context));
@@ -1061,8 +1061,8 @@ pub fn set_cmdline(cmdline: &HymoSpoofCmdline) -> Result<()> {
                 warn,
                 "sys:hymofs",
                 "set_cmdline fell back to legacy ioctl layout: current=0x{:x}, compat=0x{:x}",
-                HYMO_IOC_SET_CMDLINE as u64,
-                HYMO_IOC_SET_CMDLINE_COMPAT as u64
+                HYMO_IOC_SET_CMDLINE,
+                HYMO_IOC_SET_CMDLINE_COMPAT
             );
             return Ok(());
         }
