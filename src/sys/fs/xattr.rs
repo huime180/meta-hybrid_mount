@@ -24,7 +24,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Context;
 use anyhow::Result;
 #[cfg(any(target_os = "linux", target_os = "android"))]
-use extattr::{Flags as XattrFlags, lgetxattr, lsetxattr};
+use extattr::{Flags as XattrFlags, lsetxattr};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const SELINUX_XATTR: &str = "security.selinux";
