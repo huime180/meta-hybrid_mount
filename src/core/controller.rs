@@ -62,7 +62,6 @@ pub struct Planned {
 
 pub struct Executed {
     pub handle: StorageHandle,
-    pub plan: MountPlan,
     pub result: executor::ExecutionResult,
 }
 
@@ -226,7 +225,6 @@ impl MountController<Planned> {
             backend_capabilities: self.backend_capabilities,
             state: Executed {
                 handle: self.state.handle,
-                plan: self.state.plan,
                 result,
             },
             tempdir: self.tempdir,
@@ -241,7 +239,6 @@ impl MountController<Executed> {
             &self.config,
             self.state.handle.mode(),
             self.state.handle.mount_point(),
-            &self.state.plan,
             &self.state.result,
         )?;
 
