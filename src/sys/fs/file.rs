@@ -26,9 +26,13 @@ use std::{
 use anyhow::{Context, Result, bail};
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use rustix::fs::ioctl_ficlone;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use rustix::fs::{Gid, Uid, chown};
 use walkdir::WalkDir;
 
 use crate::defs;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::sys::fs::{lgetfilecon, lsetfilecon};
 
 #[derive(Debug, Default)]
 pub struct SyncDirStats {
@@ -97,6 +101,98 @@ pub fn reflink_or_copy(src: &Path, dest: &Path) -> Result<u64> {
     fs::copy(src, dest).map_err(|e| e.into())
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn clone_selinux_context(src: &Path, dst: &Path) {
+    match lgetfilecon(src).and_then(|con| lsetfilecon(dst, &con)) {
+        Ok(()) => {}
+        Err(err) => {
+            crate::scoped_log!(
+                warn,
+                "sync",
+                "clone selinux context skipped: src={}, dst={}, error={:#}",
+                src.display(),
+                dst.display(),
+                err
+            );
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn clone_selinux_context(_src: &Path, _dst: &Path) {}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn clone_ownership(src: &Path, dst: &Path) {
+    let metadata = match fs::symlink_metadata(src) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            crate::scoped_log!(
+                warn,
+                "sync",
+                "clone ownership skipped: src={}, dst={}, error={}",
+                src.display(),
+                dst.display(),
+                err
+            );
+            return;
+        }
+    };
+
+    let result = if metadata.file_type().is_symlink() {
+        let c_path = match CString::new(dst.as_os_str().as_encoded_bytes()) {
+            Ok(path) => path,
+            Err(err) => {
+                crate::scoped_log!(
+                    warn,
+                    "sync",
+                    "clone ownership skipped: src={}, dst={}, error={}",
+                    src.display(),
+                    dst.display(),
+                    err
+                );
+                return;
+            }
+        };
+
+        let rc = unsafe {
+            libc::lchown(
+                c_path.as_ptr(),
+                metadata.uid() as libc::uid_t,
+                metadata.gid() as libc::gid_t,
+            )
+        };
+
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    } else {
+        chown(
+            dst,
+            Some(Uid::from_raw(metadata.uid())),
+            Some(Gid::from_raw(metadata.gid())),
+        )
+        .map_err(std::io::Error::from)
+    };
+
+    if let Err(err) = result {
+        crate::scoped_log!(
+            warn,
+            "sync",
+            "clone ownership skipped: src={}, dst={}, uid={}, gid={}, error={}",
+            src.display(),
+            dst.display(),
+            metadata.uid(),
+            metadata.gid(),
+            err
+        );
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn clone_ownership(_src: &Path, _dst: &Path) {}
+
 fn make_device_node(path: &Path, mode: u32, rdev: u64) -> Result<()> {
     let c_path = CString::new(path.as_os_str().as_encoded_bytes())?;
     let dev = rdev as libc::dev_t;
@@ -124,6 +220,8 @@ fn native_cp_r(
         if let Ok(src_meta) = src.metadata() {
             let _ = fs::set_permissions(dst, src_meta.permissions());
         }
+        clone_ownership(src, dst);
+        clone_selinux_context(src, dst);
     }
 
     for entry in fs::read_dir(src)? {
@@ -164,6 +262,8 @@ fn native_cp_r(
             }
             let link_target = fs::read_link(&src_path)?;
             symlink(&link_target, &dst_path)?;
+            clone_ownership(&src_path, &dst_path);
+            clone_selinux_context(&src_path, &dst_path);
         } else if ft.is_char_device() || ft.is_block_device() || ft.is_fifo() {
             if dst_path.exists() {
                 fs::remove_file(&dst_path)?;
@@ -171,8 +271,12 @@ fn native_cp_r(
             let mode = metadata.permissions().mode();
             let rdev = metadata.rdev();
             make_device_node(&dst_path, mode, rdev)?;
+            clone_ownership(&src_path, &dst_path);
+            clone_selinux_context(&src_path, &dst_path);
         } else {
             reflink_or_copy(&src_path, &dst_path)?;
+            clone_ownership(&src_path, &dst_path);
+            clone_selinux_context(&src_path, &dst_path);
         }
     }
     Ok(())
