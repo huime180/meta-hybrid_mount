@@ -4,7 +4,7 @@
 
 ![Language](https://img.shields.io/badge/Language-Rust-orange?style=flat-square&logo=rust)
 ![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android)
-![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)
 
 Hybrid Mount is a mount orchestration metamodule for **KernelSU** and **APatch**.  
 It merges module files into Android partitions with three mount modes:
@@ -290,4 +290,5 @@ Artifacts are produced under `output/`.
 
 ## License
 
-Licensed under [GPL-3.0](LICENSE).
+Licensed under [Apache-2.0](LICENSE).
+Optional external build inputs referenced above, such as APatch KPM sources, remain under their respective upstream licenses.

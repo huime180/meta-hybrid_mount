@@ -4,7 +4,7 @@
 
 ![Language](https://img.shields.io/badge/Language-Rust-orange?style=flat-square&logo=rust)
 ![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square&logo=android)
-![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)
 
 Hybrid Mount 是面向 **KernelSU** 与 **APatch** 的挂载编排元模块。  
 它现在支持三种挂载方式，把模块文件注入 Android 分区：
@@ -290,4 +290,5 @@ cargo run -p xtask -- build --release --skip-webui
 
 ## 开源协议
 
-本项目采用 [GPL-3.0](LICENSE)。
+本仓库采用 [Apache-2.0](LICENSE)。
+上文提到的可选外部构建输入，例如 APatch KPM 源码，仍分别遵循其上游许可证。
