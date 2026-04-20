@@ -26,6 +26,47 @@ use ksu::NukeExt4Sysfs;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use procfs::process::Process;
 
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KptoolsCommand {
+    Load,
+    Control,
+    Unload,
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+impl KptoolsCommand {
+    fn failure_prefix(self) -> &'static str {
+        match self {
+            Self::Load => "Failed to load kpm:",
+            Self::Control => "Failed to control kpm:",
+            Self::Unload => "Failed to unload kpm:",
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn parse_i64_token(token: &str) -> Option<i64> {
+    token
+        .trim_end_matches(|c: char| !matches!(c, '-' | '0'..='9'))
+        .parse::<i64>()
+        .ok()
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn extract_kpm_rc_from_text(text: &str) -> Option<i64> {
+    text.split_whitespace()
+        .find_map(|token| token.strip_prefix("rc=").and_then(parse_i64_token))
+        .or_else(|| text.lines().rev().find_map(|line| line.trim().parse::<i64>().ok()))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn text_reports_kptools_failure(text: &str, command: KptoolsCommand) -> bool {
+    text.lines()
+        .any(|line| line.trim_start().starts_with(command.failure_prefix()))
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn probe_ext4_procfs_node(path: &Path) -> Result<Option<std::path::PathBuf>> {
     let path_str = path
@@ -116,6 +157,16 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
             format_output(&load_output)
         );
     }
+    let load_rc = extract_kpm_rc(&load_output);
+    if output_reports_kptools_failure(&load_output, KptoolsCommand::Load)
+        || load_rc.is_some_and(|rc| rc < 0)
+    {
+        bail!(
+            "kpm load reported failure: module={kpm_module}, rc={}, output={}",
+            format_optional_rc(load_rc),
+            format_output(&load_output)
+        );
+    }
 
     let path_str = path.to_string_lossy().to_string();
     let call_output = if call_mode.eq_ignore_ascii_case("nr") {
@@ -147,13 +198,18 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
         .args(["kpm", "unload", &kpm_id])
         .output()
         .with_context(|| format!("failed to unload kpm module with {kp_bin}"))?;
-    if !unload_output.status.success() {
+    let unload_rc = extract_kpm_rc(&unload_output);
+    if !unload_output.status.success()
+        || output_reports_kptools_failure(&unload_output, KptoolsCommand::Unload)
+        || unload_rc.is_some_and(|rc| rc < 0)
+    {
         crate::scoped_log!(
             warn,
             "nuke",
-            "kpm unload failed: module={}, code={:?}, output={}",
+            "kpm unload failed: module={}, code={:?}, rc={}, output={}",
             kpm_id,
             unload_output.status.code(),
+            format_optional_rc(unload_rc),
             format_output(&unload_output)
         );
     }
@@ -166,9 +222,15 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
             format_output(&call_output)
         );
     }
-    if let Some(rc) = call_rc
-        && rc < 0
+    if output_reports_kptools_failure(&call_output, KptoolsCommand::Control)
+        || call_rc.is_some_and(|rc| rc < 0)
     {
+        let Some(rc) = call_rc else {
+            bail!(
+                "kpm invoke reported failure without return code: mode={call_mode}, output={}",
+                format_output(&call_output)
+            );
+        };
         if !strict_verify && rc == -(libc::EEXIST as i64) {
             crate::scoped_log!(
                 warn,
@@ -217,21 +279,22 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn extract_kpm_rc(output: &Output) -> Option<i64> {
-    [
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    ]
-    .into_iter()
-    .find_map(|text| {
-        text.split_whitespace().find_map(|token| {
-            token.strip_prefix("rc=").and_then(|value| {
-                value
-                    .trim_end_matches(|c: char| !matches!(c, '-' | '0'..='9'))
-                    .parse::<i64>()
-                    .ok()
-            })
-        })
-    })
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    extract_kpm_rc_from_text(&stdout).or_else(|| extract_kpm_rc_from_text(&stderr))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn output_reports_kptools_failure(output: &Output, command: KptoolsCommand) -> bool {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    text_reports_kptools_failure(&stdout, command) || text_reports_kptools_failure(&stderr, command)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn format_optional_rc(rc: Option<i64>) -> String {
+    rc.map(|value| value.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string())
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -278,5 +341,47 @@ pub fn nuke_path(path: &Path) -> Result<()> {
     {
         let _ = path;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        KptoolsCommand, extract_kpm_rc_from_text, parse_i64_token, text_reports_kptools_failure,
+    };
+
+    #[test]
+    fn parse_rc_token_trims_trailing_punctuation() {
+        assert_eq!(parse_i64_token("-17,"), Some(-17));
+        assert_eq!(parse_i64_token("0"), Some(0));
+    }
+
+    #[test]
+    fn extract_rc_supports_rc_prefix() {
+        assert_eq!(extract_kpm_rc_from_text("ok rc=-17"), Some(-17));
+    }
+
+    #[test]
+    fn extract_rc_supports_plain_integer_line() {
+        assert_eq!(
+            extract_kpm_rc_from_text("Failed to control kpm: Unknown error -17\n-17\n"),
+            Some(-17)
+        );
+    }
+
+    #[test]
+    fn detect_load_failure_prefix() {
+        assert!(text_reports_kptools_failure(
+            "Failed to load kpm: No such file or directory",
+            KptoolsCommand::Load
+        ));
+    }
+
+    #[test]
+    fn ignore_non_matching_failure_prefix() {
+        assert!(!text_reports_kptools_failure(
+            "Failed to control kpm: Invalid argument",
+            KptoolsCommand::Load
+        ));
     }
 }

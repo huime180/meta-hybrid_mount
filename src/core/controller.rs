@@ -353,7 +353,22 @@ fn detach_tempdir_mount(tempdir: &Path) -> Result<()> {
             "cleanup umount: path={}",
             tempdir.display()
         );
-        umount(tempdir, UnmountFlags::DETACH)?;
+        if let Err(err) = umount(tempdir, UnmountFlags::DETACH) {
+            crate::scoped_log!(
+                warn,
+                "controller:finalize",
+                "cleanup umount failed: path={}, error={:#}",
+                tempdir.display(),
+                err
+            );
+            return Err(err.into());
+        }
+        crate::scoped_log!(
+            info,
+            "controller:finalize",
+            "cleanup umount complete: path={}",
+            tempdir.display()
+        );
         Ok(())
     }
 }
