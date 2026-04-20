@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 
-use super::shared::{load_effective_config, save_config_for_cli};
+use super::shared::{load_effective_config, update_config_for_cli};
 use crate::{
     conf::cli::Cli,
     core::api,
@@ -48,9 +48,9 @@ pub fn handle_lkm_unload(cli: &Cli) -> Result<()> {
 }
 
 pub fn handle_lkm_set_autoload(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.lkm_autoload = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, _) = update_config_for_cli(cli, |config| {
+        config.hymofs.lkm_autoload = enabled;
+    })?;
     println!(
         "HymoFS LKM autoload {} in {}.",
         if enabled { "enabled" } else { "disabled" },
@@ -60,9 +60,9 @@ pub fn handle_lkm_set_autoload(cli: &Cli, enabled: bool) -> Result<()> {
 }
 
 pub fn handle_lkm_set_kmi(cli: &Cli, kmi: &str) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.lkm_kmi_override = kmi.to_string();
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, _) = update_config_for_cli(cli, |config| {
+        config.hymofs.lkm_kmi_override = kmi.to_string();
+    })?;
     println!(
         "HymoFS LKM KMI override set to {} in {}.",
         kmi,
@@ -72,9 +72,9 @@ pub fn handle_lkm_set_kmi(cli: &Cli, kmi: &str) -> Result<()> {
 }
 
 pub fn handle_lkm_clear_kmi(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.lkm_kmi_override.clear();
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, _) = update_config_for_cli(cli, |config| {
+        config.hymofs.lkm_kmi_override.clear();
+    })?;
     println!("HymoFS LKM KMI override cleared in {}.", path.display());
     Ok(())
 }

@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::shared::{
     apply_live_if_possible, apply_live_runtime_sync, clear_pathbuf, detect_rule_file_type,
-    load_effective_config, print_config_apply_result, require_live_hymofs, save_config_for_cli,
+    load_effective_config, print_config_apply_result, require_live_hymofs, update_config_for_cli,
 };
 use crate::{
     conf::{
@@ -127,9 +127,9 @@ pub fn handle_hymofs_fix_mounts() -> Result<()> {
 }
 
 pub fn handle_hymofs_set_enabled(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enabled = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enabled = enabled;
+    })?;
     let applied = apply_live_if_possible(&config, "set_enabled", || {
         if enabled {
             hymofs_mount::sync_runtime_config(&config)?;
@@ -153,45 +153,45 @@ pub fn handle_hymofs_set_enabled(cli: &Cli, enabled: bool) -> Result<()> {
 }
 
 pub fn handle_hymofs_set_hidexattr(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_hidexattr = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_hidexattr = enabled;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_hidexattr")?;
     print_config_apply_result(&path, "HymoFS hidexattr setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_mirror(cli: &Cli, path_value: &Path) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.mirror_path = path_value.to_path_buf();
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.mirror_path = path_value.to_path_buf();
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_mirror_path")?;
     print_config_apply_result(&path, "HymoFS mirror path", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_debug(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_kernel_debug = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_kernel_debug = enabled;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_debug")?;
     print_config_apply_result(&path, "HymoFS kernel debug setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_stealth(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_stealth = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_stealth = enabled;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_stealth")?;
     print_config_apply_result(&path, "HymoFS stealth setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_ignore_protocol_mismatch(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.ignore_protocol_mismatch = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, _) = update_config_for_cli(cli, |config| {
+        config.hymofs.ignore_protocol_mismatch = enabled;
+    })?;
     hymofs::invalidate_status_cache();
     println!(
         "HymoFS protocol mismatch policy saved to {}. Ignore mismatch is now {}.",
@@ -206,27 +206,26 @@ pub fn handle_hymofs_set_mount_hide(
     enabled: bool,
     path_pattern: Option<&Path>,
 ) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_mount_hide = enabled;
-    config.hymofs.mount_hide.enabled = enabled;
-    if enabled {
-        if let Some(path_pattern) = path_pattern {
-            config.hymofs.mount_hide.path_pattern = path_pattern.to_path_buf();
+    let (save_path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_mount_hide = enabled;
+        config.hymofs.mount_hide.enabled = enabled;
+        if enabled {
+            if let Some(path_pattern) = path_pattern {
+                config.hymofs.mount_hide.path_pattern = path_pattern.to_path_buf();
+            }
+        } else {
+            clear_pathbuf(&mut config.hymofs.mount_hide.path_pattern);
         }
-    } else {
-        clear_pathbuf(&mut config.hymofs.mount_hide.path_pattern);
-    }
-
-    let save_path = save_config_for_cli(cli, &config)?;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_mount_hide")?;
     print_config_apply_result(&save_path, "HymoFS mount_hide setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_maps_spoof(cli: &Cli, enabled: bool) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_maps_spoof = enabled;
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_maps_spoof = enabled;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_maps_spoof")?;
     print_config_apply_result(&path, "HymoFS maps_spoof setting", applied);
     Ok(())
@@ -238,22 +237,21 @@ pub fn handle_hymofs_set_statfs_spoof(
     path_value: Option<&Path>,
     spoof_f_type: Option<u64>,
 ) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.enable_statfs_spoof = enabled;
-    config.hymofs.statfs_spoof.enabled = enabled;
-    if enabled {
-        if let Some(path) = path_value {
-            config.hymofs.statfs_spoof.path = path.to_path_buf();
+    let (save_path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.enable_statfs_spoof = enabled;
+        config.hymofs.statfs_spoof.enabled = enabled;
+        if enabled {
+            if let Some(path) = path_value {
+                config.hymofs.statfs_spoof.path = path.to_path_buf();
+            }
+            if let Some(spoof_f_type) = spoof_f_type {
+                config.hymofs.statfs_spoof.spoof_f_type = spoof_f_type;
+            }
+        } else {
+            clear_pathbuf(&mut config.hymofs.statfs_spoof.path);
+            config.hymofs.statfs_spoof.spoof_f_type = 0;
         }
-        if let Some(spoof_f_type) = spoof_f_type {
-            config.hymofs.statfs_spoof.spoof_f_type = spoof_f_type;
-        }
-    } else {
-        clear_pathbuf(&mut config.hymofs.statfs_spoof.path);
-        config.hymofs.statfs_spoof.spoof_f_type = 0;
-    }
-
-    let save_path = save_config_for_cli(cli, &config)?;
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_statfs_spoof")?;
     print_config_apply_result(&save_path, "HymoFS statfs_spoof setting", applied);
     Ok(())
@@ -278,77 +276,71 @@ pub fn handle_hymofs_set_uname(
         bail!("No uname fields were provided. Use `hymofs uname clear` to clear spoofing.");
     }
 
-    let mut config = load_effective_config(cli)?;
-    if let Some(value) = sysname {
-        config.hymofs.uname.sysname = value.to_string();
-    }
-    if let Some(value) = nodename {
-        config.hymofs.uname.nodename = value.to_string();
-    }
-    if let Some(value) = release {
-        config.hymofs.uname.release = value.to_string();
-    }
-    if let Some(value) = version {
-        config.hymofs.uname.version = value.to_string();
-    }
-    if let Some(value) = machine {
-        config.hymofs.uname.machine = value.to_string();
-    }
-    if let Some(value) = domainname {
-        config.hymofs.uname.domainname = value.to_string();
-    }
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        if let Some(value) = sysname {
+            config.hymofs.uname.sysname = value.to_string();
+        }
+        if let Some(value) = nodename {
+            config.hymofs.uname.nodename = value.to_string();
+        }
+        if let Some(value) = release {
+            config.hymofs.uname.release = value.to_string();
+        }
+        if let Some(value) = version {
+            config.hymofs.uname.version = value.to_string();
+        }
+        if let Some(value) = machine {
+            config.hymofs.uname.machine = value.to_string();
+        }
+        if let Some(value) = domainname {
+            config.hymofs.uname.domainname = value.to_string();
+        }
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_uname")?;
     print_config_apply_result(&path, "HymoFS uname spoof setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_clear_uname(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.uname = Default::default();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.uname = Default::default();
+    })?;
     let applied = apply_live_runtime_sync(&config, "clear_uname")?;
     print_config_apply_result(&path, "HymoFS uname spoof setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_cmdline(cli: &Cli, value: &str) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.cmdline_value = value.to_string();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.cmdline_value = value.to_string();
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_cmdline")?;
     print_config_apply_result(&path, "HymoFS cmdline spoof setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_clear_cmdline(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.cmdline_value.clear();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.cmdline_value.clear();
+    })?;
     let applied = apply_live_runtime_sync(&config, "clear_cmdline")?;
     print_config_apply_result(&path, "HymoFS cmdline spoof setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_set_hide_uids(cli: &Cli, uids: &[u32]) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.hide_uids = uids.to_vec();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.hide_uids = uids.to_vec();
+    })?;
     let applied = apply_live_runtime_sync(&config, "set_hide_uids")?;
     print_config_apply_result(&path, "HymoFS hide_uids setting", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_clear_hide_uids(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.hide_uids.clear();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.hide_uids.clear();
+    })?;
     let applied = apply_live_runtime_sync(&config, "clear_hide_uids")?;
     print_config_apply_result(&path, "HymoFS hide_uids setting", applied);
     Ok(())
@@ -362,7 +354,6 @@ pub fn handle_hymofs_add_maps_rule(
     spoofed_dev: u64,
     path: &Path,
 ) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
     let new_rule = HymoMapsRuleConfig {
         target_ino,
         target_dev,
@@ -371,28 +362,27 @@ pub fn handle_hymofs_add_maps_rule(
         spoofed_pathname: path.to_path_buf(),
     };
 
-    if let Some(existing) = config
-        .hymofs
-        .maps_rules
-        .iter_mut()
-        .find(|rule| rule.target_ino == target_ino && rule.target_dev == target_dev)
-    {
-        *existing = new_rule.clone();
-    } else {
-        config.hymofs.maps_rules.push(new_rule);
-    }
-
-    let path_out = save_config_for_cli(cli, &config)?;
+    let (path_out, config) = update_config_for_cli(cli, |config| {
+        if let Some(existing) = config
+            .hymofs
+            .maps_rules
+            .iter_mut()
+            .find(|rule| rule.target_ino == target_ino && rule.target_dev == target_dev)
+        {
+            *existing = new_rule.clone();
+        } else {
+            config.hymofs.maps_rules.push(new_rule.clone());
+        }
+    })?;
     let applied = apply_live_runtime_sync(&config, "add_maps_rule")?;
     print_config_apply_result(&path_out, "HymoFS maps rule", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_clear_maps_rules(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.maps_rules.clear();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        config.hymofs.maps_rules.clear();
+    })?;
     let applied = apply_live_runtime_sync(&config, "clear_maps_rules")?;
     print_config_apply_result(&path, "HymoFS maps rules", applied);
     Ok(())
@@ -417,7 +407,6 @@ pub fn handle_hymofs_upsert_kstat_rule(
     spoofed_blocks: u64,
     is_static: bool,
 ) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
     let new_rule = HymoKstatRuleConfig {
         target_ino,
         target_pathname: target_path.to_path_buf(),
@@ -436,28 +425,27 @@ pub fn handle_hymofs_upsert_kstat_rule(
         is_static,
     };
 
-    if let Some(existing) = config
-        .hymofs
-        .kstat_rules
-        .iter_mut()
-        .find(|rule| rule.target_ino == target_ino && rule.target_pathname == target_path)
-    {
-        *existing = new_rule.clone();
-    } else {
-        config.hymofs.kstat_rules.push(new_rule);
-    }
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, config) = update_config_for_cli(cli, |config| {
+        if let Some(existing) = config
+            .hymofs
+            .kstat_rules
+            .iter_mut()
+            .find(|rule| rule.target_ino == target_ino && rule.target_pathname == target_path)
+        {
+            *existing = new_rule.clone();
+        } else {
+            config.hymofs.kstat_rules.push(new_rule.clone());
+        }
+    })?;
     let applied = apply_live_runtime_sync(&config, "upsert_kstat_rule")?;
     print_config_apply_result(&path, "HymoFS kstat rule", applied);
     Ok(())
 }
 
 pub fn handle_hymofs_clear_kstat_rules_config(cli: &Cli) -> Result<()> {
-    let mut config = load_effective_config(cli)?;
-    config.hymofs.kstat_rules.clear();
-
-    let path = save_config_for_cli(cli, &config)?;
+    let (path, _) = update_config_for_cli(cli, |config| {
+        config.hymofs.kstat_rules.clear();
+    })?;
     println!(
         "HymoFS kstat rules were removed from {}. Existing kernel kstat spoof rules may persist until the LKM is reloaded.",
         path.display()

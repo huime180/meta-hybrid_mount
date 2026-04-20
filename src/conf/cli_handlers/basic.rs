@@ -12,90 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
-use super::shared::{decode_hex_json, load_effective_config};
+use super::shared::{decode_hex_json, load_config_session, load_effective_config};
 use crate::{
     conf::{
         cli::Cli,
         config::{self, Config},
-        schema::HymoFsConfig,
+        store::ConfigPatch,
     },
     core::{inventory::listing as modules, runtime_state::RuntimeState},
-    defs,
-    domain::DefaultMode,
-    utils,
+    defs, utils,
 };
-
-#[derive(Debug, Deserialize)]
-struct SaveConfigPatch {
-    moduledir: Option<PathBuf>,
-    mountsource: Option<String>,
-    partitions: Option<Vec<String>>,
-    overlay_mode: Option<config::OverlayMode>,
-    disable_umount: Option<bool>,
-    enable_overlay_fallback: Option<bool>,
-    default_mode: Option<DefaultMode>,
-    hymofs: Option<HymoFsConfig>,
-    rules: Option<HashMap<String, config::ModuleRules>>,
-}
-
-impl SaveConfigPatch {
-    fn apply_to(self, config: &mut Config) {
-        if let Some(moduledir) = self.moduledir {
-            config.moduledir = moduledir;
-        }
-
-        if let Some(mountsource) = self.mountsource {
-            config.mountsource = mountsource;
-        }
-
-        if let Some(partitions) = self.partitions {
-            config.partitions = partitions;
-        }
-
-        if let Some(overlay_mode) = self.overlay_mode {
-            config.overlay_mode = overlay_mode;
-        }
-
-        if let Some(disable_umount) = self.disable_umount {
-            config.disable_umount = disable_umount;
-        }
-
-        if let Some(enable_overlay_fallback) = self.enable_overlay_fallback {
-            config.enable_overlay_fallback = enable_overlay_fallback;
-        }
-
-        if let Some(default_mode) = self.default_mode {
-            config.default_mode = default_mode;
-        }
-
-        if let Some(hymofs) = self.hymofs {
-            config.hymofs = hymofs;
-        }
-
-        if let Some(rules) = self.rules {
-            config.rules = rules;
-        }
-    }
-}
-
-fn save_config_patch(config_path: &Path, patch: SaveConfigPatch) -> Result<()> {
-    let mut config = Config::load_optional_from_file(config_path)
-        .with_context(|| format!("Failed to load config file {}", config_path.display()))?;
-
-    patch.apply_to(&mut config);
-
-    config
-        .save_to_file(config_path)
-        .with_context(|| format!("Failed to save config file to {}", config_path.display()))
-}
 
 pub fn handle_gen_config(output: &Path, force: bool) -> Result<()> {
     if output.exists() && !force {
@@ -117,26 +47,30 @@ pub fn handle_show_config(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_save_config(payload: &str) -> Result<()> {
-    let patch: SaveConfigPatch = decode_hex_json(payload, "config")?;
+pub fn handle_save_config(cli: &Cli, payload: &str) -> Result<()> {
+    let patch: ConfigPatch = decode_hex_json(payload, "config")?;
+    let mut session = load_config_session(cli)?;
+    session.apply_patch(patch);
+    let path = session.save().context("Failed to save config file")?;
 
-    save_config_patch(Path::new(defs::CONFIG_FILE), patch).context("Failed to save config file")?;
-
-    println!("Configuration saved successfully.");
+    println!("Configuration saved successfully to {}.", path.display());
     Ok(())
 }
 
-pub fn handle_save_module_rules(module_id: &str, payload: &str) -> Result<()> {
+pub fn handle_save_module_rules(cli: &Cli, module_id: &str, payload: &str) -> Result<()> {
     utils::validate_module_id(module_id)?;
     let new_rules: config::ModuleRules = decode_hex_json(payload, "module rules")?;
-    let mut config = Config::load_default().unwrap_or_default();
-
-    config.rules.insert(module_id.to_string(), new_rules);
-    config
-        .save_to_file(defs::CONFIG_FILE)
+    let mut session = load_config_session(cli)?;
+    session.save_module_rules(module_id, new_rules);
+    let path = session
+        .save()
         .context("Failed to update config file with new rules")?;
 
-    println!("Module rules saved for {} into config.toml", module_id);
+    println!(
+        "Module rules saved for {} into {}",
+        module_id,
+        path.display()
+    );
     Ok(())
 }
 
@@ -174,16 +108,21 @@ pub fn handle_logs(lines: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, path::PathBuf};
+
     use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        conf::schema::{HymoFsConfig, OverlayMode},
-        domain::{ModuleRules, MountMode},
+        conf::{
+            cli::Cli,
+            schema::{HymoFsConfig, OverlayMode},
+        },
+        domain::{DefaultMode, ModuleRules, MountMode},
     };
 
     #[test]
-    fn save_config_patch_preserves_unsent_fields() {
+    fn save_config_respects_custom_path_and_preserves_unsent_fields() {
         let tempdir = tempdir().expect("tempdir");
         let config_path = tempdir.path().join("config.toml");
 
@@ -208,7 +147,7 @@ mod tests {
         };
         config.save_to_file(&config_path).expect("seed config");
 
-        let patch = SaveConfigPatch {
+        let patch = ConfigPatch {
             moduledir: Some(PathBuf::from("/data/adb/custom_modules")),
             mountsource: None,
             partitions: Some(Vec::new()),
@@ -219,8 +158,22 @@ mod tests {
             hymofs: None,
             rules: None,
         };
+        let payload = serde_json::to_string(&patch).expect("serialize patch");
+        let hex_payload = payload
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
 
-        save_config_patch(&config_path, patch).expect("save patch");
+        let cli = Cli {
+            config: Some(config_path.clone()),
+            moduledir: None,
+            mountsource: None,
+            partitions: Vec::new(),
+            command: None,
+        };
+
+        handle_save_config(&cli, &hex_payload).expect("save patch");
 
         let saved = Config::load_optional_from_file(&config_path).expect("load saved config");
         assert_eq!(saved.moduledir, PathBuf::from("/data/adb/custom_modules"));
@@ -237,5 +190,40 @@ mod tests {
                 .map(|rules| rules.default_mode.clone()),
             Some(MountMode::Magic)
         );
+    }
+
+    #[test]
+    fn save_module_rules_respects_custom_path() {
+        let tempdir = tempdir().expect("tempdir");
+        let config_path = tempdir.path().join("custom.toml");
+        Config::default()
+            .save_to_file(&config_path)
+            .expect("seed config");
+
+        let cli = Cli {
+            config: Some(config_path.clone()),
+            moduledir: None,
+            mountsource: None,
+            partitions: Vec::new(),
+            command: None,
+        };
+
+        let rules = ModuleRules {
+            default_mode: MountMode::Overlay,
+            paths: HashMap::from([("system/bin/demo".to_string(), MountMode::Magic)]),
+        };
+        let payload = serde_json::to_string(&rules).expect("serialize rules");
+        let hex_payload = payload
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        handle_save_module_rules(&cli, "demo", &hex_payload).expect("save module rules");
+
+        let saved = Config::load_optional_from_file(&config_path).expect("load saved config");
+        let saved_rules = saved.rules.get("demo").expect("module rules saved");
+        assert_eq!(saved_rules.default_mode, rules.default_mode);
+        assert_eq!(saved_rules.paths, rules.paths);
     }
 }

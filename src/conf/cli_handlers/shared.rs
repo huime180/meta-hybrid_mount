@@ -22,8 +22,7 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    conf::{cli::Cli, config::Config, loader},
-    defs,
+    conf::{cli::Cli, config::Config, store::ConfigSession},
     mount::hymofs as hymofs_mount,
     sys::hymofs,
 };
@@ -43,28 +42,23 @@ pub(super) fn decode_hex_json<T: DeserializeOwned>(payload: &str, type_name: &st
         .with_context(|| format!("Failed to parse {} JSON payload", type_name))
 }
 
+pub(super) fn load_config_session(cli: &Cli) -> Result<ConfigSession> {
+    ConfigSession::load_from_cli(cli)
+}
+
 pub(super) fn load_effective_config(cli: &Cli) -> Result<Config> {
-    let mut config = loader::load_config(cli)?;
-    config.merge_with_cli(
-        cli.moduledir.clone(),
-        cli.mountsource.clone(),
-        cli.partitions.clone(),
-    );
-    Ok(config)
+    Ok(load_config_session(cli)?.effective())
 }
 
-pub(super) fn config_output_path(cli: &Cli) -> PathBuf {
-    cli.config
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(defs::CONFIG_FILE))
-}
-
-pub(super) fn save_config_for_cli(cli: &Cli, config: &Config) -> Result<PathBuf> {
-    let main_path = config_output_path(cli);
-    config
-        .save_to_file(&main_path)
-        .with_context(|| format!("Failed to save config file to {}", main_path.display()))?;
-    Ok(main_path)
+pub(super) fn update_config_for_cli<F>(cli: &Cli, update: F) -> Result<(std::path::PathBuf, Config)>
+where
+    F: FnOnce(&mut Config),
+{
+    let mut session = load_config_session(cli)?;
+    update(session.persisted_mut());
+    let effective = session.effective();
+    let path = session.save()?;
+    Ok((path, effective))
 }
 
 pub(super) fn apply_live_if_possible<F>(

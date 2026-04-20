@@ -17,18 +17,12 @@ mod recovery;
 use anyhow::{Context, Result};
 
 use crate::{
-    conf::{cli::Cli, config::Config, loader},
+    conf::{cli::Cli, config::Config, store::ConfigSession},
     defs, sys, utils,
 };
 
 fn load_final_config(cli: &Cli) -> Result<Config> {
-    let mut config = loader::load_config(cli)?;
-    config.merge_with_cli(
-        cli.moduledir.clone(),
-        cli.mountsource.clone(),
-        cli.partitions.clone(),
-    );
-    Ok(config)
+    Ok(ConfigSession::load_from_cli(cli)?.effective())
 }
 
 pub fn run(cli: &Cli) -> Result<()> {
