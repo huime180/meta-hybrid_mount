@@ -15,6 +15,8 @@
 use std::path::Path;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::process::{Command, Output};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -24,13 +26,24 @@ use ksu::NukeExt4Sysfs;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use procfs::process::Process;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+static APATCH_KPM_LOADED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+struct ApatchKpmConfig {
+    kp_bin: String,
+    kpm_module: String,
+    kpm_id: String,
+    call_mode: String,
+    control_name: Option<String>,
+}
+
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KptoolsCommand {
     Load,
     Control,
-    Unload,
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", test))]
@@ -39,7 +52,6 @@ impl KptoolsCommand {
         match self {
             Self::Load => "Failed to load kpm:",
             Self::Control => "Failed to control kpm:",
-            Self::Unload => "Failed to unload kpm:",
         }
     }
 }
@@ -128,7 +140,7 @@ fn apatch_nuke_strict_verify() -> bool {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn execute_apatch_nuke(path: &Path) -> Result<()> {
+fn resolve_apatch_kpm_config() -> Result<ApatchKpmConfig> {
     let kp_bin = std::env::var("HYBRID_MOUNT_APATCH_KP_BIN")
         .unwrap_or_else(|_| "/data/adb/ap/bin/kptools".to_string());
     if !Path::new(&kp_bin).exists() {
@@ -144,43 +156,8 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
         std::env::var("HYBRID_MOUNT_APATCH_KPM_ID").unwrap_or_else(|_| "nuke_ext4_sysfs".into());
     let call_mode =
         std::env::var("HYBRID_MOUNT_APATCH_KPM_CALL_MODE").unwrap_or_else(|_| "control".into());
-    let strict_verify = apatch_nuke_strict_verify();
-    let procfs_node = probe_ext4_procfs_node(path).ok().flatten();
-    let before_exists = procfs_node.as_ref().is_some_and(|node| node.exists());
-
-    let load_output = Command::new(&kp_bin)
-        .args(["kpm", "load", &kpm_module])
-        .output()
-        .with_context(|| format!("failed to load kpm module with {kp_bin}"))?;
-    if !load_output.status.success() {
-        bail!(
-            "kpm load failed: module={kpm_module}, code={:?}, output={}",
-            load_output.status.code(),
-            format_output(&load_output)
-        );
-    }
-    let load_rc = extract_kpm_rc(&load_output);
-    if output_reports_kptools_failure(&load_output, KptoolsCommand::Load)
-        || load_rc.is_some_and(|rc| rc < 0)
-    {
-        bail!(
-            "kpm load reported failure: module={kpm_module}, rc={}, output={}",
-            format_optional_rc(load_rc),
-            format_output(&load_output)
-        );
-    }
-
-    let path_str = path.to_string_lossy().to_string();
-    let call_output = if call_mode.eq_ignore_ascii_case("nr") {
-        let nr = std::env::var("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR")
-            .context("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR is required when call mode is 'nr'")?;
-        let _ = nr
-            .parse::<u32>()
-            .with_context(|| format!("invalid unused nr value: {nr}"))?;
-        Command::new(&kp_bin)
-            .args(["kpm", "call", &nr, &path_str])
-            .output()
-            .with_context(|| format!("failed to call kpm unused nr with {kp_bin}"))
+    let control_name = if call_mode.eq_ignore_ascii_case("nr") {
+        None
     } else {
         let control_name = std::env::var("HYBRID_MOUNT_APATCH_KPM_CONTROL")
             .unwrap_or_else(|_| "nuke_ext4_sysfs".to_string());
@@ -190,36 +167,130 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
         {
             bail!("invalid kpm control name: {control_name}");
         }
-        Command::new(&kp_bin)
-            .args(["kpm", "control", &control_name, &path_str])
-            .output()
-            .with_context(|| format!("failed to call kpm control with {kp_bin}"))
-    }?;
+        Some(control_name)
+    };
 
-    let unload_output = Command::new(&kp_bin)
-        .args(["kpm", "unload", &kpm_id])
+    Ok(ApatchKpmConfig {
+        kp_bin,
+        kpm_module,
+        kpm_id,
+        call_mode,
+        control_name,
+    })
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn load_result_is_already_loaded(output: &Output) -> bool {
+    let rc = extract_kpm_rc(output);
+    rc == Some(-(libc::EEXIST as i64)) || output_mentions_file_exists(output)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn ensure_apatch_kpm_loaded(config: &ApatchKpmConfig) -> Result<()> {
+    if APATCH_KPM_LOADED.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
+    let load_output = Command::new(&config.kp_bin)
+        .args(["kpm", "load", &config.kpm_module])
         .output()
-        .with_context(|| format!("failed to unload kpm module with {kp_bin}"))?;
-    let unload_rc = extract_kpm_rc(&unload_output);
-    if !unload_output.status.success()
-        || output_reports_kptools_failure(&unload_output, KptoolsCommand::Unload)
-        || unload_rc.is_some_and(|rc| rc < 0)
-    {
-        crate::scoped_log!(
-            warn,
-            "nuke",
-            "kpm unload failed: module={}, code={:?}, rc={}, output={}",
-            kpm_id,
-            unload_output.status.code(),
-            format_optional_rc(unload_rc),
-            format_output(&unload_output)
+        .with_context(|| format!("failed to load kpm module with {}", config.kp_bin))?;
+    let load_rc = extract_kpm_rc(&load_output);
+    let already_loaded = load_result_is_already_loaded(&load_output);
+
+    if !load_output.status.success() && !already_loaded {
+        bail!(
+            "kpm load failed: module={}, code={:?}, output={}",
+            config.kpm_module,
+            load_output.status.code(),
+            format_output(&load_output)
         );
     }
+    if (output_reports_kptools_failure(&load_output, KptoolsCommand::Load)
+        || load_rc.is_some_and(|rc| rc < 0))
+        && !already_loaded
+    {
+        bail!(
+            "kpm load reported failure: module={}, rc={}, output={}",
+            config.kpm_module,
+            format_optional_rc(load_rc),
+            format_output(&load_output)
+        );
+    }
+
+    APATCH_KPM_LOADED.store(true, Ordering::Release);
+
+    if already_loaded {
+        crate::scoped_log!(
+            debug,
+            "nuke",
+            "apatch kpm already loaded: module={}, id={}",
+            config.kpm_module,
+            config.kpm_id
+        );
+    } else {
+        crate::scoped_log!(
+            info,
+            "nuke",
+            "apatch kpm preloaded: module={}, id={}",
+            config.kpm_module,
+            config.kpm_id
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn preload_if_needed() -> Result<()> {
+    if ksu::version().is_some() {
+        return Ok(());
+    }
+
+    let config = resolve_apatch_kpm_config()?;
+    ensure_apatch_kpm_loaded(&config)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub fn preload_if_needed() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn execute_apatch_nuke(path: &Path) -> Result<()> {
+    let config = resolve_apatch_kpm_config()?;
+    ensure_apatch_kpm_loaded(&config)?;
+    let strict_verify = apatch_nuke_strict_verify();
+    let procfs_node = probe_ext4_procfs_node(path).ok().flatten();
+    let before_exists = procfs_node.as_ref().is_some_and(|node| node.exists());
+
+    let path_str = path.to_string_lossy().to_string();
+    let call_output = if config.call_mode.eq_ignore_ascii_case("nr") {
+        let nr = std::env::var("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR")
+            .context("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR is required when call mode is 'nr'")?;
+        let _ = nr
+            .parse::<u32>()
+            .with_context(|| format!("invalid unused nr value: {nr}"))?;
+        Command::new(&config.kp_bin)
+            .args(["kpm", "call", &nr, &path_str])
+            .output()
+            .with_context(|| format!("failed to call kpm unused nr with {}", config.kp_bin))
+    } else {
+        let control_name = config
+            .control_name
+            .as_deref()
+            .context("missing kpm control name for control mode")?;
+        Command::new(&config.kp_bin)
+            .args(["kpm", "control", control_name, &path_str])
+            .output()
+            .with_context(|| format!("failed to call kpm control with {}", config.kp_bin))
+    }?;
 
     let call_rc = extract_kpm_rc(&call_output);
     if !call_output.status.success() {
         bail!(
-            "kpm invoke failed: mode={call_mode}, code={:?}, output={}",
+            "kpm invoke failed: mode={}, code={:?}, output={}",
+            config.call_mode,
             call_output.status.code(),
             format_output(&call_output)
         );
@@ -229,7 +300,8 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
     {
         let Some(rc) = call_rc else {
             bail!(
-                "kpm invoke reported failure without return code: mode={call_mode}, output={}",
+                "kpm invoke reported failure without return code: mode={}, output={}",
+                config.call_mode,
                 format_output(&call_output)
             );
         };
@@ -238,13 +310,14 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
                 warn,
                 "nuke",
                 "kpm invoke returned -EEXIST in best-effort mode: mode={}, rc={}, output={}",
-                call_mode,
+                config.call_mode,
                 rc,
                 format_output(&call_output)
             );
         } else {
             bail!(
-                "kpm invoke reported failure: mode={call_mode}, rc={rc}, output={}",
+                "kpm invoke reported failure: mode={}, rc={rc}, output={}",
+                config.call_mode,
                 format_output(&call_output)
             );
         }
@@ -291,6 +364,18 @@ fn output_reports_kptools_failure(output: &Output, command: KptoolsCommand) -> b
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     text_reports_kptools_failure(&stdout, command) || text_reports_kptools_failure(&stderr, command)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn output_mentions_file_exists(output: &Output) -> bool {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    text_mentions_file_exists(&stdout) || text_mentions_file_exists(&stderr)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn text_mentions_file_exists(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("file exists")
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -349,7 +434,8 @@ pub fn nuke_path(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        KptoolsCommand, extract_kpm_rc_from_text, parse_i64_token, text_reports_kptools_failure,
+        KptoolsCommand, extract_kpm_rc_from_text, parse_i64_token, text_mentions_file_exists,
+        text_reports_kptools_failure,
     };
 
     #[test]
@@ -385,5 +471,11 @@ mod tests {
             "Failed to control kpm: Invalid argument",
             KptoolsCommand::Load
         ));
+    }
+
+    #[test]
+    fn detect_file_exists_text_case_insensitively() {
+        assert!(text_mentions_file_exists("Failed to load kpm: File exists"));
+        assert!(text_mentions_file_exists("failed to load kpm: file exists"));
     }
 }

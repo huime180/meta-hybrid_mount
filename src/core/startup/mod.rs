@@ -35,16 +35,25 @@ pub fn run(cli: &Cli) -> Result<()> {
     sys::fs::ensure_dir_exists(defs::RUN_DIR)
         .with_context(|| format!("Failed to create run directory: {}", defs::RUN_DIR))?;
 
-    let config = load_final_config(cli)?;
-
     utils::init_logging().context("Failed to initialize logging")?;
     crate::scoped_log!(info, "startup", "init: daemon=hybrid-mount");
+
+    utils::check_ksu();
+
+    if let Err(err) = sys::nuke::preload_if_needed() {
+        crate::scoped_log!(
+            warn,
+            "startup",
+            "apatch nuke kpm preload failed: error={:#}",
+            err
+        );
+    }
+
+    let config = load_final_config(cli)?;
 
     if let Ok(version) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
         crate::scoped_log!(debug, "startup", "kernel: version={}", version.trim());
     }
-
-    utils::check_ksu();
 
     if config.hymofs.enabled {
         match sys::lkm::autoload_if_needed(&config.hymofs) {
