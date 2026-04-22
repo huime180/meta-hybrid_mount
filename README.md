@@ -285,7 +285,6 @@ Artifacts are produced under `output/`.
 - On APatch, Hybrid Mount preloads `/data/adb/hybrid-mount/kpm/nuke_ext4_sysfs.kpm` through `/data/adb/ap/bin/kptools kpm load` during early startup, then issues `kpm control/call` only when `ext4_unregister_sysfs` is needed before falling back to `MNT_DETACH`.
 - APatch runtime overrides are available through `HYBRID_MOUNT_APATCH_KP_BIN`, `HYBRID_MOUNT_APATCH_KPM_MODULE`, `HYBRID_MOUNT_APATCH_KPM_ID`, `HYBRID_MOUNT_APATCH_KPM_CALL_MODE`, `HYBRID_MOUNT_APATCH_KPM_CONTROL`, and `HYBRID_MOUNT_APATCH_KPM_UNUSED_NR`.
 - If a bad config causes boot issues, regenerate a minimal config with `gen-config` and reapply module rules incrementally.
-- Release builds now default to the smaller system allocator and `opt-level = "z"` so the packaged binaries shrink without extra flags. If you want to trade size back for allocator performance in a manual cargo build, add `--features fast-allocator`.
 - For binary size optimization, prefer dependency feature trimming and release profile tuning before invasive refactors.
 
 ## License

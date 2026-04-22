@@ -285,7 +285,6 @@ cargo run -p xtask -- build --release --skip-webui
 - 在 APatch 环境下，Hybrid Mount 会在启动早期通过 `/data/adb/ap/bin/kptools kpm load` 预加载 `/data/adb/hybrid-mount/kpm/nuke_ext4_sysfs.kpm`，真正需要执行 `ext4_unregister_sysfs` 时再调用 `kpm control/call`，失败时再回退到 `MNT_DETACH`。
 - APatch 相关运行时覆盖变量包括 `HYBRID_MOUNT_APATCH_KP_BIN`、`HYBRID_MOUNT_APATCH_KPM_MODULE`、`HYBRID_MOUNT_APATCH_KPM_ID`、`HYBRID_MOUNT_APATCH_KPM_CALL_MODE`、`HYBRID_MOUNT_APATCH_KPM_CONTROL`、`HYBRID_MOUNT_APATCH_KPM_UNUSED_NR`。
 - 如果配置导致启动异常，先 `gen-config` 生成最小配置，再逐步恢复规则。
-- 现在默认 `release` 构建会直接使用更小的系统分配器和 `opt-level = "z"`，不需要额外参数就会缩小最终打包里的二进制；如果你要在手动 `cargo build` 时把分配器性能换回来，可以显式加 `--features fast-allocator`。
 - 缩小体积建议优先从依赖特性裁剪与 release profile 入手，再考虑重构。
 
 ## 开源协议
