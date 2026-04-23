@@ -22,7 +22,7 @@ use crate::defs;
 pub fn is_reserved_module_dir(id: &str) -> bool {
     matches!(
         id,
-        "hybrid-mount" | "lost+found" | ".git" | ".idea" | ".vscode"
+        "hybrid-mount" | "hybrid_mount" | "lost+found" | ".git" | ".idea" | ".vscode"
     )
 }
 

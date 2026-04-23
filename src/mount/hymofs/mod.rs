@@ -17,8 +17,5 @@ mod compile;
 mod runtime;
 mod status;
 
-pub use runtime::{
-    apply, clear_runtime_best_effort, reset_runtime, sync_runtime_config,
-    sync_runtime_config_for_operation,
-};
+pub use runtime::{apply, reset_runtime};
 pub use status::{can_operate, collect_runtime_info, hook_lines, require_live};

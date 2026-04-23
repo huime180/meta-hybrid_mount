@@ -14,6 +14,8 @@
 
 use std::{collections::HashSet, fs, path::Path};
 
+use crate::core::inventory;
+
 const MANAGED_PARTITION_SEED: &[&str] = &[
     "system",
     "vendor",
@@ -45,6 +47,13 @@ pub fn discover_partition_names(moduledir: &Path, extra_partitions: &[String]) -
         for module_entry in modules.flatten() {
             let module_path = module_entry.path();
             if !module_path.is_dir() {
+                continue;
+            }
+
+            let module_id = module_entry.file_name().to_string_lossy().to_string();
+            if inventory::is_reserved_module_dir(&module_id)
+                || inventory::has_mount_block_marker(&module_path)
+            {
                 continue;
             }
 

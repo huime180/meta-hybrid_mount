@@ -50,26 +50,8 @@ pub fn hook_lines() -> Result<Vec<String>> {
 }
 
 pub fn collect_runtime_info(config: &config::Config) -> HymoFsRuntimeInfo {
-    if !config.hymofs.enabled {
-        return HymoFsRuntimeInfo {
-            status: "disabled".to_string(),
-            available: false,
-            lkm_loaded: lkm::is_loaded(),
-            lkm_autoload: config.hymofs.lkm_autoload,
-            lkm_kmi_override: config.hymofs.lkm_kmi_override.clone(),
-            lkm_current_kmi: lkm::current_kmi(),
-            lkm_dir: config.hymofs.lkm_dir.clone(),
-            protocol_version: None,
-            feature_bits: None,
-            feature_names: Vec::new(),
-            hooks: Vec::new(),
-            rule_count: 0,
-            user_hide_rule_count: user_hide_rules::user_hide_rule_count(),
-            mirror_path: config.hymofs.mirror_path.clone(),
-        };
-    }
-
-    let status = hymofs::check_status();
+    let live_status = hymofs::check_status();
+    let lkm_loaded = lkm::is_loaded();
     let protocol_version = hymofs::get_protocol_version().ok();
     let feature_bits = hymofs::get_features().ok();
     let feature_names = feature_bits.map(hymofs::feature_names).unwrap_or_default();
@@ -77,11 +59,19 @@ pub fn collect_runtime_info(config: &config::Config) -> HymoFsRuntimeInfo {
     let rule_count = hymofs::get_active_rules()
         .map(|value| api::parse_hymofs_rule_listing(&value).len())
         .unwrap_or(0);
+    let available = live_status == HymoFsStatus::Available;
+    let status = if config.hymofs.enabled {
+        hymofs::status_name(live_status).to_string()
+    } else if available || lkm_loaded || rule_count > 0 {
+        "disabled_runtime_present".to_string()
+    } else {
+        "disabled".to_string()
+    };
 
     HymoFsRuntimeInfo {
-        status: hymofs::status_name(status).to_string(),
-        available: status == HymoFsStatus::Available,
-        lkm_loaded: lkm::is_loaded(),
+        status,
+        available,
+        lkm_loaded,
         lkm_autoload: config.hymofs.lkm_autoload,
         lkm_kmi_override: config.hymofs.lkm_kmi_override.clone(),
         lkm_current_kmi: lkm::current_kmi(),

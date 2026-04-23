@@ -24,7 +24,6 @@ use serde::de::DeserializeOwned;
 use crate::{
     conf::{cli::Cli, config::Config, store::ConfigSession},
     mount::hymofs as hymofs_mount,
-    sys::hymofs,
 };
 
 pub(super) fn decode_hex_json<T: DeserializeOwned>(payload: &str, type_name: &str) -> Result<T> {
@@ -61,48 +60,15 @@ where
     Ok((path, effective))
 }
 
-pub(super) fn apply_live_if_possible<F>(
-    config: &Config,
-    description: &str,
-    operation: F,
-) -> Result<bool>
-where
-    F: FnOnce() -> Result<()>,
-{
-    if !hymofs_mount::can_operate(config) {
-        crate::scoped_log!(
-            warn,
-            "cli:hymofs",
-            "live apply skipped: operation={}, status={}",
-            description,
-            hymofs::status_name(hymofs::check_status())
-        );
-        return Ok(false);
-    }
-
-    operation()?;
-    Ok(true)
-}
-
-pub(super) fn apply_live_runtime_sync(config: &Config, description: &str) -> Result<bool> {
-    apply_live_if_possible(config, description, || {
-        hymofs_mount::sync_runtime_config_for_operation(config, description)
-    })
-}
-
 pub(super) fn require_live_hymofs(config: &Config, description: &str) -> Result<()> {
     hymofs_mount::require_live(config, description)
 }
 
-pub(super) fn print_config_apply_result(path: &Path, what: &str, applied: bool) {
-    if applied {
-        println!("{what} saved to {} and applied to HymoFS.", path.display());
-    } else {
-        println!(
-            "{what} saved to {}. HymoFS is not currently available, so only the config was updated.",
-            path.display()
-        );
-    }
+pub(super) fn print_config_save_result(path: &Path, what: &str) {
+    println!(
+        "{what} saved to {}. Running HymoFS state was not changed; apply the runtime separately for the new config to take effect.",
+        path.display()
+    );
 }
 
 pub(super) fn clear_pathbuf(path: &mut PathBuf) {
