@@ -27,7 +27,6 @@ use rustix::mount::mount_bind;
 
 use crate::{
     core::inventory::{self, Module},
-    defs,
     domain::{ModuleRules, MountMode},
     mount::node::Node,
     sys::fs::{lgetfilecon, lsetfilecon},
@@ -292,7 +291,7 @@ fn collect_magic_subtree(
 
 pub fn collect_module_files(
     module_dir: &Path,
-    extra_partitions: &[String],
+    managed_partitions: &[String],
     magic_modules: &[Module],
     use_hymofs: bool,
     overlay_fallback_enabled: bool,
@@ -301,7 +300,7 @@ pub fn collect_module_files(
     let mut system = Node::new_root("system");
     let module_root = module_dir;
     let mut has_file = HashSet::new();
-    let partitions = defs::managed_partition_set(extra_partitions);
+    let partitions: HashSet<String> = managed_partitions.iter().cloned().collect();
     let selected_rules: HashMap<&str, &ModuleRules> = magic_modules
         .iter()
         .map(|module| (module.id.as_str(), &module.rules))
@@ -447,43 +446,19 @@ pub fn collect_module_files(
     }
 
     if has_file.contains(&true) {
-        const BUILTIN_PARTITIONS: [(&str, bool); 4] = [
-            ("vendor", true),
-            ("system_ext", true),
-            ("product", true),
-            ("odm", false),
-        ];
-
-        for (partition, require_symlink) in BUILTIN_PARTITIONS {
-            let path_of_root = Path::new("/").join(partition);
-            let path_of_system = Path::new("/system").join(partition);
-            if path_of_root.is_dir() && (!require_symlink || path_of_system.is_symlink()) {
-                let name = partition.to_string();
-                if let Some(node) = system.children.remove(&name) {
-                    root.children.insert(name, node);
-                }
-            }
-        }
-
-        for partition in extra_partitions {
-            if BUILTIN_PARTITIONS.iter().any(|(p, _)| p == partition) {
-                continue;
-            }
+        for partition in managed_partitions {
             if partition == "system" {
                 continue;
             }
 
             let path_of_root = Path::new("/").join(partition);
-            let path_of_system = Path::new("/system").join(partition);
-            let require_symlink = false;
-
-            if path_of_root.is_dir() && (!require_symlink || path_of_system.is_symlink()) {
+            if path_of_root.is_dir() {
                 let name = partition.clone();
                 if let Some(node) = system.children.remove(&name) {
                     crate::scoped_log!(
                         debug,
                         "magic:collect",
-                        "attach extra partition: name={}",
+                        "attach managed partition: name={}",
                         name
                     );
                     root.children.insert(name, node);

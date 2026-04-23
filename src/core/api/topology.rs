@@ -28,6 +28,8 @@ use serde_json::{Value, json};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use crate::defs;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::partitions;
 use crate::{conf::config::Config, core::runtime_state::RuntimeState};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -211,10 +213,11 @@ fn collect_mount_topology(
     state: &RuntimeState,
     inspected_pid: u32,
 ) -> Result<MountTopologyPayload> {
-    let managed_partition_roots = defs::managed_partition_names(&config.partitions)
-        .into_iter()
-        .map(|name| PathBuf::from(format!("/{name}")))
-        .collect::<Vec<_>>();
+    let managed_partition_roots =
+        partitions::managed_partition_names(&config.moduledir, &config.partitions)
+            .into_iter()
+            .map(|name| PathBuf::from(format!("/{name}")))
+            .collect::<Vec<_>>();
     let active_partition_roots = state
         .active_mounts
         .iter()

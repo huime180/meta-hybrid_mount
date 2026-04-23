@@ -22,7 +22,7 @@ use super::{build_features_payload, build_lkm_payload};
 use crate::{
     conf::config::Config,
     core::runtime_state::RuntimeState,
-    defs,
+    partitions,
     sys::hymofs::{self, HymoFsStatus},
 };
 
@@ -282,7 +282,7 @@ fn detect_partitions(config: &Config) -> Result<Vec<PartitionInfo>> {
     let mount_entries = read_mount_entries()?;
     let mut partitions = Vec::new();
 
-    for name in defs::managed_partition_names(&config.partitions) {
+    for name in partitions::managed_partition_names(&config.moduledir, &config.partitions) {
         let mount_point = PathBuf::from("/").join(&name);
         let metadata = match fs::symlink_metadata(&mount_point) {
             Ok(metadata) => metadata,

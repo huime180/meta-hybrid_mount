@@ -17,6 +17,7 @@ mod core;
 mod defs;
 mod domain;
 mod mount;
+mod partitions;
 mod sys;
 mod utils;
 

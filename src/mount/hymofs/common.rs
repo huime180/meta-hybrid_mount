@@ -14,12 +14,12 @@
 
 use anyhow::{Result, anyhow};
 
-use crate::{conf::config, defs};
+use crate::{conf::config, partitions};
 
 pub(super) fn build_managed_partitions(
     config: &config::Config,
 ) -> std::collections::HashSet<String> {
-    defs::managed_partition_set(&config.partitions)
+    partitions::managed_partition_set(&config.moduledir, &config.partitions)
 }
 
 pub(super) fn effective_stealth_enabled(config: &config::Config) -> bool {

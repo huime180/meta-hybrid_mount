@@ -22,13 +22,14 @@ use crate::{
         inventory::Module,
         recovery::{FailureStage, ModuleStageFailure},
     },
-    defs,
+    partitions,
     sys::fs::{prune_empty_dirs, set_overlay_opaque, sync_dir},
 };
 
 pub fn perform_sync(modules: &[Module], target_base: &Path, config: &config::Config) -> Result<()> {
     crate::scoped_log!(info, "sync", "start: target={}", target_base.display());
-    let managed_partitions = defs::managed_partition_names(&config.partitions);
+    let managed_partitions =
+        partitions::managed_partition_names(&config.moduledir, &config.partitions);
 
     prune_orphaned_modules(modules, target_base)?;
 
@@ -40,7 +41,7 @@ pub fn perform_sync(modules: &[Module], target_base: &Path, config: &config::Con
             crate::scoped_log!(
                 debug,
                 "sync",
-                "module skip: id={}, reason=no_builtin_partition_root",
+                "module skip: id={}, reason=no_managed_partition_root",
                 module.id
             );
             continue;

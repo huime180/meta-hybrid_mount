@@ -570,34 +570,6 @@ fn build_webui(version: &str, is_release: bool) -> Result<()> {
 }
 
 fn generate_webui_constants(version: &str, is_release: bool) -> Result<()> {
-    const BUILTIN_PARTITIONS: &[&str] = &[
-        "system",
-        "vendor",
-        "product",
-        "system_ext",
-        "odm",
-        "oem",
-        "apex",
-        "mi_ext",
-        "my_bigball",
-        "my_carrier",
-        "my_company",
-        "my_engineering",
-        "my_heytap",
-        "my_manifest",
-        "my_preload",
-        "my_product",
-        "my_region",
-        "my_reserve",
-        "my_stock",
-        "optics",
-        "prism",
-    ];
-    let builtin_partitions = BUILTIN_PARTITIONS
-        .iter()
-        .map(|partition| format!(r#""{partition}""#))
-        .collect::<Vec<_>>()
-        .join(", ");
     let path = Path::new("webui/src/lib/constants_gen.ts");
     let content = format!(
         r#"
@@ -610,7 +582,6 @@ export const RUST_PATHS = {{
   DAEMON_STATE: "/data/adb/hybrid-mount/run/daemon_state.json",
   DAEMON_LOG: "/data/adb/hybrid-mount/daemon.log",
 }} as const;
-export const BUILTIN_PARTITIONS = [{builtin_partitions}] as const;
 "#
     );
     if let Some(parent) = path.parent() {

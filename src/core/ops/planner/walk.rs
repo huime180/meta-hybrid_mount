@@ -19,7 +19,7 @@ use std::{
 };
 
 use super::{effective_mount_mode, log_mode_decision, path_has_descendant_rule};
-use crate::{conf::config, core::inventory::Module, defs, domain::MountMode, utils};
+use crate::{conf::config, core::inventory::Module, domain::MountMode, utils};
 
 struct ProcessingItem {
     module_source: PathBuf,
@@ -46,22 +46,21 @@ pub(super) struct PlannerContext {
     overlay_fallback_enabled: bool,
     target_cache: HashMap<PathBuf, PathBuf>,
     overlay_groups: BTreeMap<PathBuf, (String, Vec<PathBuf>)>,
-    sensitive_partitions: HashSet<String>,
-    extra_partitions: HashSet<String>,
+    managed_partitions: HashSet<String>,
 }
 
 impl PlannerContext {
-    pub(super) fn new(config: &config::Config, use_hymofs: bool) -> Self {
+    pub(super) fn new(
+        config: &config::Config,
+        use_hymofs: bool,
+        managed_partitions: HashSet<String>,
+    ) -> Self {
         Self {
             use_hymofs,
             overlay_fallback_enabled: config.enable_overlay_fallback,
             target_cache: HashMap::new(),
             overlay_groups: BTreeMap::new(),
-            sensitive_partitions: defs::SENSITIVE_PARTITIONS
-                .iter()
-                .map(|partition| (*partition).to_string())
-                .collect(),
-            extra_partitions: config.partitions.iter().cloned().collect(),
+            managed_partitions,
         }
     }
 
@@ -82,9 +81,7 @@ impl PlannerContext {
             .map(|value| value.to_string_lossy())
             .unwrap_or_default();
 
-        target_name == "system"
-            || self.sensitive_partitions.contains(target_name.as_ref())
-            || self.extra_partitions.contains(target_name.as_ref())
+        target_name == "system" || self.managed_partitions.contains(target_name.as_ref())
     }
 
     fn queue_overlay(

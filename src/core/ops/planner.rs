@@ -30,9 +30,8 @@ use crate::{
         inventory::Module,
         ops::plan::{MountPlan, OverlayOperation},
     },
-    defs,
     domain::MountMode,
-    utils,
+    partitions, utils,
 };
 
 fn effective_mount_mode(requested: &MountMode, use_hymofs: bool) -> MountMode {
@@ -128,10 +127,15 @@ fn generate_with_root(
     let mut magic_ids = HashSet::new();
     let mut hymofs_ids = HashSet::new();
 
-    let managed_partitions = defs::managed_partition_set(&config.partitions);
+    let managed_partitions =
+        partitions::managed_partition_set(&config.moduledir, &config.partitions);
     let hymofs = HymofsCoordinator::new(config);
     let hymofs_planning = hymofs.planning_state(capabilities, modules);
-    let mut planner = PlannerContext::new(config, hymofs_planning.available);
+    let mut planner = PlannerContext::new(
+        config,
+        hymofs_planning.available,
+        managed_partitions.clone(),
+    );
 
     if hymofs_planning.requested && !hymofs_planning.available {
         if config.hymofs.enabled {

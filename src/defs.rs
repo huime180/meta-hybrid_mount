@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
-
 use const_format::concatcp;
 
 pub const ADB_DIR: &str = "/data/adb";
@@ -42,73 +40,9 @@ pub const REPLACE_DIR_FILE_NAME: &str = ".replace";
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub const REPLACE_DIR_XATTR: &str = "trusted.overlay.opaque";
 
-pub const BUILTIN_PARTITIONS: &[&str] = &[
-    "system",
-    "vendor",
-    "product",
-    "system_ext",
-    "odm",
-    "oem",
-    "apex",
-    "mi_ext",
-    "my_bigball",
-    "my_carrier",
-    "my_company",
-    "my_engineering",
-    "my_heytap",
-    "my_manifest",
-    "my_preload",
-    "my_product",
-    "my_region",
-    "my_reserve",
-    "my_stock",
-    "optics",
-    "prism",
-];
-
-pub const SENSITIVE_PARTITIONS: &[&str] = &[
-    "vendor",
-    "product",
-    "system_ext",
-    "odm",
-    "oem",
-    "apex",
-    "mi_ext",
-    "my_bigball",
-    "my_carrier",
-    "my_company",
-    "my_engineering",
-    "my_heytap",
-    "my_manifest",
-    "my_preload",
-    "my_product",
-    "my_region",
-    "my_reserve",
-    "my_stock",
-    "optics",
-    "prism",
-];
-
 pub const IGNORE_UNMOUNT_PARTITIONS: &[&str] = &[
     "/vendor/lib",
     "/vendor/lib64",
     "/system/lib",
     "/system/lib64",
 ];
-
-pub fn managed_partition_names(extra_partitions: &[String]) -> Vec<String> {
-    let mut names = BUILTIN_PARTITIONS
-        .iter()
-        .map(|partition| partition.to_string())
-        .collect::<Vec<_>>();
-    names.extend(extra_partitions.iter().cloned());
-    names.sort();
-    names.dedup();
-    names
-}
-
-pub fn managed_partition_set(extra_partitions: &[String]) -> HashSet<String> {
-    managed_partition_names(extra_partitions)
-        .into_iter()
-        .collect()
-}

@@ -216,7 +216,7 @@ impl MountContext {
 
 pub struct MagicMountOptions<'a> {
     pub mount_source: &'a str,
-    pub extra_partitions: &'a [String],
+    pub managed_partitions: &'a [String],
     pub use_hymofs: bool,
     pub overlay_fallback_enabled: bool,
 }
@@ -555,7 +555,7 @@ where
 
     if let Some(root) = collect_module_files(
         module_dir,
-        options.extra_partitions,
+        options.managed_partitions,
         magic_modules,
         options.use_hymofs,
         options.overlay_fallback_enabled,
