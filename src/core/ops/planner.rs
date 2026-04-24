@@ -38,7 +38,7 @@ fn effective_mount_mode(requested: &MountMode, use_hymofs: bool) -> MountMode {
     if matches!(requested, MountMode::Hymofs) && !use_hymofs {
         MountMode::Ignore
     } else {
-        requested.clone()
+        *requested
     }
 }
 

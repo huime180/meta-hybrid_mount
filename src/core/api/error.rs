@@ -34,7 +34,8 @@ pub fn print_json_error(err: &anyhow::Error) {
     };
     println!(
         "{}",
-        serde_json::to_string(&payload)
-            .unwrap_or_else(|_| r#"{"type":"error","error":"failed to serialize error payload"}"#.to_string())
+        serde_json::to_string(&payload).unwrap_or_else(|_| {
+            r#"{"type":"error","error":"failed to serialize error payload"}"#.to_string()
+        })
     );
 }

@@ -153,7 +153,7 @@ fn effective_mode(mode: &MountMode, use_hymofs: bool) -> MountMode {
     if matches!(mode, MountMode::Hymofs) && !use_hymofs {
         MountMode::Ignore
     } else {
-        mode.clone()
+        *mode
     }
 }
 

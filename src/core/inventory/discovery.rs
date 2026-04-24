@@ -73,7 +73,7 @@ fn load_module_rules(module_dir: &Path, module_id: &str, cfg: &config::Config) -
     }
 
     if let Some(global_rules) = cfg.rules.get(module_id) {
-        rules.default_mode = global_rules.default_mode.clone();
+        rules.default_mode = global_rules.default_mode;
         rules.paths.extend(global_rules.paths.clone());
     }
 

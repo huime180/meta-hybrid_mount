@@ -77,7 +77,10 @@ pub fn init_logging() -> Result<()> {
             )
         });
         // try_init returns Err if a logger is already set — that's harmless
-        builder.filter_level(log::LevelFilter::Trace).try_init().ok();
+        builder
+            .filter_level(log::LevelFilter::Trace)
+            .try_init()
+            .ok();
         LOGGER_INIT.set(()).ok();
     }
     Ok(())
