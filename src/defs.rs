@@ -26,7 +26,6 @@ pub const STATE_FILE: &str = concatcp!(RUN_DIR, "daemon_state.json");
 pub const SYSTEM_RW_DIR: &str = concatcp!(HYBRID_MOUNT_DIR, "/rw");
 pub const CONFIG_FILE: &str = concatcp!(HYBRID_MOUNT_DIR, "/config.toml");
 pub const USER_HIDE_RULES_FILE: &str = concatcp!(HYBRID_MOUNT_DIR, "/user_hide_rules.json");
-pub const MODULE_PROP_FILE: &str = concatcp!(HYBRID_MOUNT_MODULE_DIR, "/module.prop");
 pub const HYMOFS_MIRROR_DIR: &str = "/dev/hymo_mirror";
 pub const HYMOFS_LKM_DIR: &str = concatcp!(HYBRID_MOUNT_MODULE_DIR, "/hymofs_lkm");
 pub const HYMOFS_LKM_MODULE_NAME: &str = "hymofs_lkm";
