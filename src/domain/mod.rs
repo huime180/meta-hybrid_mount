@@ -35,7 +35,7 @@ impl DefaultMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MountMode {
     #[default]
@@ -85,7 +85,7 @@ impl ModuleRules {
                 && relative_path.as_bytes().get(path.len()) == Some(&b'/');
 
             if (is_exact || is_prefix) && path.len() >= best_len {
-                best_match = Some(mode.clone());
+                best_match = Some(*mode);
                 best_len = path.len();
             }
         }
@@ -94,6 +94,6 @@ impl ModuleRules {
             return mode;
         }
 
-        self.default_mode.clone()
+        self.default_mode
     }
 }

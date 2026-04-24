@@ -18,7 +18,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -47,9 +47,7 @@ fn load_merged_config(main_path: &Path, allow_missing_main: bool) -> Result<Conf
     } else if allow_missing_main {
         Config::default()
     } else {
-        let _ = fs::read_to_string(main_path)
-            .with_context(|| format!("failed to read config file {}", main_path.display()))?;
-        unreachable!("read_to_string should have returned an error for missing config file");
+        bail!("config file not found: {}", main_path.display());
     })
 }
 

@@ -75,6 +75,7 @@ fn cal_version_code(version: &str) -> Result<usize> {
     Ok(major * 100000 + minor * 1000 + patch)
 }
 
+// NOTE: keep in sync with xtask/src/main.rs cal_git_code()
 fn cal_git_code() -> Result<i32> {
     Ok(String::from_utf8(
         Command::new("git")

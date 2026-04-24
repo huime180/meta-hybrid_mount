@@ -596,16 +596,13 @@ fn compile_core(release: bool, arch: Arch) -> Result<()> {
     Ok(())
 }
 
-fn calculate_version_code(version_str: &str) -> String {
+fn calculate_version_code(version_str: &str) -> Result<String> {
     let parts: Vec<&str> = version_str.split('.').collect();
-    if parts.len() >= 3 {
-        let major: u32 = parts[0].parse().unwrap_or(0);
-        let minor: u32 = parts[1].parse().unwrap_or(0);
-        let patch: u32 = parts[2].parse().unwrap_or(0);
-        format!("{}{:02}{:02}", major, minor, patch)
-    } else {
-        "0".to_string()
-    }
+    anyhow::ensure!(parts.len() >= 3, "invalid version: {}", version_str);
+    let major: usize = parts[0].parse()?;
+    let minor: usize = parts[1].parse()?;
+    let patch: usize = parts[2].parse()?;
+    Ok((major * 100000 + minor * 1000 + patch).to_string())
 }
 
 fn resolve_release_version(tag: &str) -> Result<VersionInfo> {
@@ -614,7 +611,7 @@ fn resolve_release_version(tag: &str) -> Result<VersionInfo> {
 
     let commit_count = cal_git_code()?;
     let full_version = format!("{}-{}", clean_version, commit_count);
-    let version_code = calculate_version_code(clean_version);
+    let version_code = calculate_version_code(clean_version)?;
 
     Ok(VersionInfo {
         clean_version: clean_version.to_string(),
@@ -630,7 +627,7 @@ fn resolve_local_or_ci_version() -> Result<VersionInfo> {
     let commit_count = cal_git_code()?;
 
     let full_version = format!("{}-{}", clean_version, commit_count);
-    let version_code = calculate_version_code(&clean_version);
+    let version_code = calculate_version_code(&clean_version)?;
 
     Ok(VersionInfo {
         clean_version,
@@ -660,6 +657,7 @@ fn update_cargo_toml_version(version: &str) -> Result<()> {
     Ok(())
 }
 
+// NOTE: keep in sync with build.rs cal_git_code()
 fn cal_git_code() -> Result<i32> {
     Ok(String::from_utf8(
         Command::new("git")

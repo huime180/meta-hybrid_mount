@@ -31,13 +31,18 @@ macro_rules! scoped_log {
 }
 
 pub fn get_mnt() -> PathBuf {
-    let mut name = String::new();
-
-    for _ in 0..10 {
-        name.push(fastrand::alphanumeric());
+    for _ in 0..100 {
+        let mut name = String::new();
+        for _ in 0..10 {
+            name.push(fastrand::alphanumeric());
+        }
+        let path = Path::new("/mnt").join(name);
+        if !path.exists() {
+            return path;
+        }
     }
-
-    Path::new("/mnt").join(name)
+    // Fallback: use timestamp to avoid collision after exhausting random attempts
+    Path::new("/mnt").join(format!("mnt_{}", std::process::id()))
 }
 
 pub fn init_logging() -> Result<()> {
@@ -71,8 +76,9 @@ pub fn init_logging() -> Result<()> {
                 record.args()
             )
         });
-        let _ = builder.filter_level(log::LevelFilter::Trace).try_init();
-        let _ = LOGGER_INIT.set(());
+        // try_init returns Err if a logger is already set — that's harmless
+        builder.filter_level(log::LevelFilter::Trace).try_init().ok();
+        LOGGER_INIT.set(()).ok();
     }
     Ok(())
 }
