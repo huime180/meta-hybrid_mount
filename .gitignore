@@ -8,3 +8,5 @@
 /module/module.prop
 build.sh
 
+.claude/settings.local.json
+.claude/
