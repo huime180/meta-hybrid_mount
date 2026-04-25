@@ -26,10 +26,6 @@ use clap::Parser;
 use conf::cli::Cli;
 
 fn main() -> Result<()> {
-    if matches!(std::env::var("KSU_LATE_LOAD").as_deref(), Ok("1")) {
-        panic!("不支持Late-load（越狱）模式");
-    }
-
     let cli = Cli::parse();
     core::entry::run(cli)
 }
