@@ -243,6 +243,7 @@ impl MountController<Executed> {
         clean_up(
             &self.tempdir,
             &self.config.hymofs.mirror_path,
+            self.state.handle.mode(),
             self.config.disable_umount,
         )?;
 
@@ -252,7 +253,12 @@ impl MountController<Executed> {
     }
 }
 
-fn clean_up(tempdir: &Path, hymofs_mirror_path: &Path, disable_umount: bool) -> Result<()> {
+fn clean_up(
+    tempdir: &Path,
+    hymofs_mirror_path: &Path,
+    storage_mode: &str,
+    disable_umount: bool,
+) -> Result<()> {
     if disable_umount {
         crate::scoped_log!(
             debug,
@@ -273,10 +279,10 @@ fn clean_up(tempdir: &Path, hymofs_mirror_path: &Path, disable_umount: bool) -> 
         return Ok(());
     }
 
-    clean_up_path(tempdir, hymofs_mirror_path)
+    clean_up_path(tempdir, hymofs_mirror_path, storage_mode)
 }
 
-fn clean_up_path(tempdir: &Path, hymofs_mirror_path: &Path) -> Result<()> {
+fn clean_up_path(tempdir: &Path, hymofs_mirror_path: &Path, storage_mode: &str) -> Result<()> {
     if tempdir == hymofs_mirror_path {
         crate::scoped_log!(
             info,
@@ -329,7 +335,13 @@ fn clean_up_path(tempdir: &Path, hymofs_mirror_path: &Path) -> Result<()> {
         tempdir.display()
     );
     detach_tempdir_mount(tempdir)?;
-    remove_path(tempdir)
+    remove_path(tempdir)?;
+
+    if storage_mode == "ext4" {
+        remove_path(Path::new(crate::defs::MODULES_IMG_FILE))?;
+    }
+
+    Ok(())
 }
 
 fn detach_tempdir_mount(tempdir: &Path) -> Result<()> {
