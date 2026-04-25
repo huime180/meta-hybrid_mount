@@ -1,4 +1,124 @@
 
+## v3.5.5
+
+
+### <!-- 1 --> Features
+
+- Enhance kptools command handling and error reporting in nuke module
+
+- Add mount topology command and handler for API
+
+- Implement SaveConfigPatch struct and related functionality for config updates
+
+- Enhance APatch KPM loading mechanism and improve error handling
+
+- Refactor configuration handling to use ConfigSession for improved session management and patch application
+
+- Add fast allocator feature and optimize release build settings for smaller binaries
+
+- Refactor magic_mount to use MagicMountOptions for improved parameter handling
+
+- `config` Refactor config loading to use load_default_config for improved error handling
+
+- `cli` Add command to save all module rules and improve error logging
+
+- `tests` Add unit tests for configuration and validation functions
+
+- Add ModuleModeStats struct and integrate mode statistics into RuntimeState
+
+
+
+### <!-- 2 --> Fixes
+
+- Refactor config initialization in tests for clarity and consistency
+
+- `core` Tighten config loading and module visibility Fail fast when the default config file exists but cannot be parsed, include blocked modules in the WebUI module list without affecting active mount scanning, and generate complete built-in partition metadata for the bundled WebUI.
+
+- `config` Fail on invalid default config
+
+- Fix clippy warnings
+
+- Code quality improvements across multiple modules - Unify versionCode formula between build.rs and xtask (major*100000+minor*1000+patch) - Replace unwrap_or(0) with proper error propagation in xtask versionCode - Add Copy derive to MountMode, remove unnecessary .clone() calls - Add "type": "error" discriminator to ErrorPayload for robust frontend detection - Clean up unreachable code in conf/store.rs (bail! instead of read+unreachable!) - Add collision detection in get_mnt() with exists() check loop - Make init_logging() error handling explicit with .ok() - Add sync comments for cal_git_code between build.rs and xtask - Update webui submodule to b56861d
+
+- Fix cargo fmt and clippy issues
+
+- Update metadata URL to point to the correct repository
+
+- Update default_mode in config.toml using sed for better configuration management
+
+- Remove modules.img during ext4 cleanup Ensure finalize cleanup also deletes modules.img after tempdir removal when storage mode is ext4, so stale ext4 image files are not left behind. Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+
+- Update read_c_buf to use iter().map for better clarity
+
+
+
+### <!-- 4 --> Refactors
+
+- Remove ignoreProtocolMismatch functionality and related UI elements
+
+- Remove unused test cases and improve error handling in nuke and mount modules
+
+- `core` Move dynamic partition discovery into runtime Extract partition discovery into a dedicated module, switch managed partition decisions to a shared runtime-driven source across sync, planning, hymofs, magic mount, topology, and system APIs, and update the bundled webui submodule pointer to the pushed runtime-driven partition display changes.
+
+- Remove mimalloc dependency and update log handling for Android
+
+- Simplify config update handling and improve logging for HymoFS
+
+- `api` Replace serde_json::Value with typed structs, add structured error output and save-full-config - Replace json!() macros with typed Serialize structs: FeatureInfo, LkmPayload, MountStatsPayload, HymofsVersionPayload, SystemPayload, HymofsStatusPayload, MountTopologyPayload - Add ErrorPayload + print_json_error() for structured JSON error output on API commands, so frontend can parse errors from stdout - Add save-full-config CLI command that deserializes full Config instead of partial ConfigPatch, catching missing fields early - Add active_mounts and tmpfs_xattr_supported to SystemPayload - Remove unused paths from xtask generation: MODE_CONFIG, IMAGE_MNT, DAEMON_LOG - Add Clone derive to HymoFsRuntimeInfo, Serialize derive to LkmStatus
+
+- Refactor update desc APatch was supported module config(https://github.com/bmax121/APatch/commit/05984a675a5effb171e49fa028d049f3e1243a1c), so we can directly using apd/ksud module set
+
+- Replace println! with scoped_log! for better logging in overlayfs utils
+
+- Refactor update desc only using write file
+
+- Update storage mode handling to use enum for clarity and type safety
+
+- Replace hardcoded managed partitions with constant from defs
+
+- Enhance error handling and logging in API and configuration loading functions
+
+- Remove unnecessary blank line in RuntimeState implementation
+
+
+
+### <!-- 7 --> CI / Tooling
+
+- `android` Drop armv7 and x86_64 support
+
+- Cache hymofs lkm builds
+
+- Minimized size (#316) minimized size
+
+
+
+### <!-- 8 --> Maintenance
+
+- Update license headers to Apache License 2.0 across multiple files - Changed license information from GNU General Public License to Apache License 2.0 in the following files: - src/mount/hymofs/common.rs - src/mount/hymofs/compile.rs - src/mount/hymofs/mod.rs - src/mount/hymofs/runtime.rs - src/mount/hymofs/status.rs - src/mount/magic_mount/mod.rs - src/mount/magic_mount/utils.rs - src/mount/mod.rs - src/mount/node.rs - src/mount/overlayfs/mod.rs - src/mount/overlayfs/overlayfs.rs - src/mount/overlayfs/utils.rs - src/mount/umount_mgr.rs - src/sys/fs/file.rs - src/sys/fs/mod.rs - src/sys/fs/xattr.rs - src/sys/hymofs.rs - src/sys/lkm.rs - src/sys/mod.rs - src/sys/mount.rs - src/sys/nuke.rs - src/utils/mod.rs - src/utils/path.rs - src/utils/validation.rs - xtask/Cargo.toml - xtask/src/main.rs - xtask/src/zip_ext.rs
+
+- Revert "feat: add fast allocator feature and optimize release build settings for smaller binaries" This reverts commit d4ded05dc6e0d3acedc85eb21f46e911895673a5.
+
+- Run license header workflow weekly
+
+- Fix typos, remove cert/key files, optimize string allocations, and standardize NDK version - build.rs: fix variable name typos (manjor→major, conut→count) - main.rs: replace panic!() with clean eprintln! + process::exit(1) - Remove cert.pem and private.enc from repository - Replace .to_string_lossy().to_string() with .into_owned() across 12 call sites - Standardize NDK version to r29 in release.yml (matching build.yml) Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+- Add .claude/settings.local.json and .claude/ to .gitignore
+
+- Format code for better readability in extract_module_id function
+
+- Revert "refactor: refactor update desc" it will cause description no update This reverts commit f8c7b9049ed09dc7e65aa9a8e2907fcf0665adc0.
+
+
+
+### <!-- 9 --> Other
+
+- Panic on KernelSU late-load mode in rust entrypoint
+
+- Make clippy happy
+
+
+
+
 ## v3.5.1
 
 
