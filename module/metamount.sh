@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+[ ! -f "/dev/.esred" ] && exit 0
+[ -f "/dev/.mounted" ] && exit 0
+touch /dev/.mounted
 MODDIR="${0%/*}"
 BASE_DIR="/data/adb/hybrid-mount"
 
