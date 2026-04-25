@@ -16,11 +16,9 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::Path,
-    process::Command,
-    sync::atomic::Ordering,
 };
 
-use crate::{defs, sys::fs::atomic_write, utils::KSU};
+use crate::{defs, sys::fs::atomic_write};
 
 pub fn update_description(
     storage_mode: &str,
@@ -73,22 +71,6 @@ pub fn update_crash_description(reason: &str) {
 }
 
 fn set_description(prop_path: &Path, desc_text: &str) {
-    if KSU.load(Ordering::Relaxed) {
-        let result = Command::new("ksud")
-            .arg("module")
-            .arg("config")
-            .arg("set")
-            .arg("override.description")
-            .arg(desc_text)
-            .status();
-
-        if let Ok(status) = result
-            && status.success()
-        {
-            return;
-        }
-    }
-
     let lines: Vec<String> = match fs::File::open(prop_path) {
         Ok(file) => BufReader::new(file)
             .lines()

@@ -631,7 +631,7 @@ fn lock_error(name: &str) -> anyhow::Error {
 
 fn read_c_buf(buf: &[c_char]) -> String {
     let len = buf.iter().position(|ch| *ch == 0).unwrap_or(buf.len());
-    let bytes: Vec<u8> = buf[..len].iter().map(|ch| *ch as u8).collect();
+    let bytes: Vec<u8> = buf[..len].to_vec();
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
