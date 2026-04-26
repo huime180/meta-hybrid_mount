@@ -13,23 +13,30 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    conf::{
-        cli::Cli,
-        loader,
-        schema::{Config, KasumiConfig, OverlayMode},
-    },
+    conf::{cli::Cli, loader, schema::Config},
     defs,
-    domain::{DefaultMode, ModuleRules},
 };
+
+fn migrate_legacy_kasumi_lkm_dir(config: &mut Config) {
+    let legacy_lkm_dir = Path::new(defs::HYBRID_MOUNT_MODULE_DIR).join("hymofs_lkm");
+    if config.kasumi.lkm_dir == legacy_lkm_dir {
+        crate::scoped_log!(
+            info,
+            "conf:store:load_merged",
+            "migrated legacy Kasumi LKM dir: from={}, to={}",
+            legacy_lkm_dir.display(),
+            defs::KASUMI_LKM_DIR
+        );
+        config.kasumi.lkm_dir = PathBuf::from(defs::KASUMI_LKM_DIR);
+    }
+}
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -47,7 +54,7 @@ fn load_merged_config(main_path: &Path, allow_missing_main: bool) -> Result<Conf
         allow_missing_main
     );
 
-    let config = if main_path.exists() {
+    let mut config = if main_path.exists() {
         let content = fs::read_to_string(main_path)
             .with_context(|| format!("failed to read config file {}", main_path.display()))?;
         toml::from_str::<Config>(&content)
@@ -70,6 +77,8 @@ fn load_merged_config(main_path: &Path, allow_missing_main: bool) -> Result<Conf
         bail!("config file not found: {}", main_path.display());
     };
 
+    migrate_legacy_kasumi_lkm_dir(&mut config);
+
     crate::scoped_log!(
         debug,
         "conf:store:load_merged",
@@ -87,7 +96,9 @@ impl Config {
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let main_path = path.as_ref();
-        let content = toml::to_string_pretty(self).context("failed to serialize config")?;
+        let mut config = self.clone();
+        migrate_legacy_kasumi_lkm_dir(&mut config);
+        let content = toml::to_string_pretty(&config).context("failed to serialize config")?;
 
         ensure_parent_dir(main_path)?;
         fs::write(main_path, content)
@@ -96,138 +107,10 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ConfigOverrides {
-    pub moduledir: Option<PathBuf>,
-    pub mountsource: Option<String>,
-    pub partitions: Vec<String>,
-}
-
-impl ConfigOverrides {
-    pub fn from_cli(cli: &Cli) -> Self {
-        Self {
-            moduledir: cli.moduledir.clone(),
-            mountsource: cli.mountsource.clone(),
-            partitions: cli.partitions.clone(),
-        }
-    }
-
-    pub fn apply_to(&self, config: &mut Config) {
-        config.merge_with_cli(
-            self.moduledir.clone(),
-            self.mountsource.clone(),
-            self.partitions.clone(),
-        );
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ConfigSession {
-    path: PathBuf,
-    persisted: Config,
-    overrides: ConfigOverrides,
-}
+pub struct ConfigSession;
 
 impl ConfigSession {
-    pub fn load_from_cli(cli: &Cli) -> Result<Self> {
-        Ok(Self {
-            path: cli
-                .config
-                .clone()
-                .unwrap_or_else(|| PathBuf::from(defs::CONFIG_FILE)),
-            persisted: loader::load_config(cli)?,
-            overrides: ConfigOverrides::from_cli(cli),
-        })
-    }
-
-    pub fn persisted_mut(&mut self) -> &mut Config {
-        &mut self.persisted
-    }
-
-    pub fn effective(&self) -> Config {
-        let mut config = self.persisted.clone();
-        self.overrides.apply_to(&mut config);
-        config
-    }
-
-    pub fn save(&self) -> Result<PathBuf> {
-        crate::scoped_log!(
-            debug,
-            "conf:store:save",
-            "start: path={}",
-            self.path.display()
-        );
-        self.persisted
-            .save_to_file(&self.path)
-            .with_context(|| format!("Failed to save config file to {}", self.path.display()))?;
-        crate::scoped_log!(
-            debug,
-            "conf:store:save",
-            "complete: path={}",
-            self.path.display()
-        );
-        Ok(self.path.clone())
-    }
-
-    pub fn apply_patch(&mut self, patch: ConfigPatch) {
-        patch.apply_to(&mut self.persisted);
-    }
-
-    pub fn save_module_rules(&mut self, module_id: &str, rules: ModuleRules) {
-        self.persisted.rules.insert(module_id.to_string(), rules);
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ConfigPatch {
-    pub moduledir: Option<PathBuf>,
-    pub mountsource: Option<String>,
-    pub partitions: Option<Vec<String>>,
-    pub overlay_mode: Option<OverlayMode>,
-    pub disable_umount: Option<bool>,
-    pub enable_overlay_fallback: Option<bool>,
-    pub default_mode: Option<DefaultMode>,
-    #[serde(alias = "hymofs")]
-    pub kasumi: Option<KasumiConfig>,
-    pub rules: Option<HashMap<String, ModuleRules>>,
-}
-
-impl ConfigPatch {
-    pub fn apply_to(self, config: &mut Config) {
-        if let Some(moduledir) = self.moduledir {
-            config.moduledir = moduledir;
-        }
-
-        if let Some(mountsource) = self.mountsource {
-            config.mountsource = mountsource;
-        }
-
-        if let Some(partitions) = self.partitions {
-            config.partitions = partitions;
-        }
-
-        if let Some(overlay_mode) = self.overlay_mode {
-            config.overlay_mode = overlay_mode;
-        }
-
-        if let Some(disable_umount) = self.disable_umount {
-            config.disable_umount = disable_umount;
-        }
-
-        if let Some(enable_overlay_fallback) = self.enable_overlay_fallback {
-            config.enable_overlay_fallback = enable_overlay_fallback;
-        }
-
-        if let Some(default_mode) = self.default_mode {
-            config.default_mode = default_mode;
-        }
-
-        if let Some(kasumi) = self.kasumi {
-            config.kasumi = kasumi;
-        }
-
-        if let Some(rules) = self.rules {
-            config.rules = rules;
-        }
+    pub fn load_persisted(cli: &Cli) -> Result<Config> {
+        loader::load_config(cli)
     }
 }

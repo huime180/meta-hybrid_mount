@@ -256,27 +256,6 @@ impl Default for Config {
     }
 }
 
-impl Config {
-    pub fn merge_with_cli(
-        &mut self,
-        moduledir: Option<PathBuf>,
-        mountsource: Option<String>,
-        partitions: Vec<String>,
-    ) {
-        if let Some(dir) = moduledir {
-            self.moduledir = dir;
-        }
-
-        if let Some(source) = mountsource {
-            self.mountsource = source;
-        }
-
-        if !partitions.is_empty() {
-            self.partitions = partitions;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

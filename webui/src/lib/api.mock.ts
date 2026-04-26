@@ -1,0 +1,417 @@
+import { APP_VERSION } from "./constants_gen";
+import { DEFAULT_CONFIG } from "./constants";
+import type { AppAPI } from "./api";
+import type {
+  AppConfig,
+  Module,
+  StorageStatus,
+  SystemInfo,
+  ModuleRules,
+  KasumiStatus,
+  KasumiLkmStatus,
+  KasumiUnameConfig,
+  KernelUnameValues,
+} from "./types";
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const KASUMI_LKM_DIR = "/data/adb/modules/hybrid_mount/kasumi_lkm";
+const KASUMI_CURRENT_KMI = "android15-6.6";
+const KASUMI_LKM_FILE =
+  "/data/adb/modules/hybrid_mount/kasumi_lkm/android15-6.6_arm64_kasumi_lkm.ko";
+
+function createMockState() {
+  return {
+    kasumi: {
+      enabled: true,
+      lkmLoaded: true,
+      lkmAutoload: true,
+      kmiOverride: "",
+      mirrorPath: "/dev/kasumi_mirror",
+      stealth: true,
+      hideXattr: false,
+      kernelDebug: false,
+      mapsSpoof: true,
+      cmdline: "androidboot.verifiedbootstate=green",
+      uname: {
+        sysname: "",
+        nodename: "",
+        release: "6.6.30-android15-gki",
+        version: "#1 SMP PREEMPT",
+        machine: "",
+        domainname: "",
+      },
+      originalKernel: {
+        release: "6.6.30-android15-gki",
+        version: "#1 SMP PREEMPT Mon Apr 7 18:20:00 CST 2026",
+      },
+      hideUids: [1000],
+      mapsRules: [
+        {
+          target_ino: 12345,
+          target_dev: 2049,
+          spoofed_ino: 54321,
+          spoofed_dev: 2050,
+          spoofed_pathname: "/system/bin/app_process64",
+        },
+      ],
+      mountHide: {
+        enabled: false,
+        pathPattern: "",
+      },
+      statfsSpoof: {
+        enabled: false,
+        path: "",
+        fType: 0,
+      },
+      userHideRules: ["/data/adb/magisk"],
+    },
+  };
+}
+
+const mockState = createMockState();
+
+function buildMockLkmStatus(): KasumiLkmStatus {
+  const { kasumi } = mockState;
+  return {
+    loaded: kasumi.lkmLoaded,
+    module_name: "kasumi_lkm",
+    autoload: kasumi.lkmAutoload,
+    kmi_override: kasumi.kmiOverride,
+    current_kmi: KASUMI_CURRENT_KMI,
+    search_dir: KASUMI_LKM_DIR,
+    module_file: kasumi.lkmLoaded ? KASUMI_LKM_FILE : "",
+    last_error: null,
+  };
+}
+
+function buildMockKasumiConfig(enabled: boolean): KasumiStatus["config"] {
+  const { kasumi } = mockState;
+  return {
+    enabled,
+    lkm_autoload: kasumi.lkmAutoload,
+    lkm_dir: KASUMI_LKM_DIR,
+    lkm_kmi_override: kasumi.kmiOverride,
+    mirror_path: kasumi.mirrorPath,
+    enable_kernel_debug: kasumi.kernelDebug,
+    enable_stealth: kasumi.stealth,
+    enable_hidexattr: kasumi.hideXattr,
+    enable_mount_hide: kasumi.mountHide.enabled,
+    enable_maps_spoof: kasumi.mapsSpoof,
+    enable_statfs_spoof: kasumi.statfsSpoof.enabled,
+    mount_hide: {
+      enabled: kasumi.mountHide.enabled,
+      path_pattern: kasumi.mountHide.pathPattern,
+    },
+    statfs_spoof: {
+      enabled: kasumi.statfsSpoof.enabled,
+      path: kasumi.statfsSpoof.path,
+      spoof_f_type: kasumi.statfsSpoof.fType,
+    },
+    hide_uids: [...kasumi.hideUids],
+    uname: { ...kasumi.uname },
+    uname_release: kasumi.uname.release,
+    uname_version: kasumi.uname.version,
+    cmdline_value: kasumi.cmdline,
+    kstat_rules: [],
+    maps_rules: kasumi.mapsRules.map((rule) => ({ ...rule })),
+  };
+}
+
+function buildMockKasumiStatus(): KasumiStatus {
+  const { kasumi } = mockState;
+  const lkm = buildMockLkmStatus();
+
+  if (!kasumi.enabled) {
+    return {
+      status: "disabled",
+      available: false,
+      protocol_version: null,
+      feature_bits: null,
+      feature_names: [],
+      hooks: [],
+      rule_count: 0,
+      user_hide_rule_count: kasumi.userHideRules.length,
+      mirror_path: kasumi.mirrorPath,
+      lkm,
+      config: buildMockKasumiConfig(false),
+      runtime: {
+        snapshot: {
+          status: "disabled",
+        },
+        kasumi_modules: [],
+      },
+    };
+  }
+
+  const available = kasumi.lkmLoaded;
+  return {
+    status: available ? "available" : "unavailable",
+    available,
+    protocol_version: available ? 14 : null,
+    feature_bits: available ? 487 : null,
+    feature_names: available
+      ? [
+          "kstat_spoof",
+          "uname_spoof",
+          "cmdline_spoof",
+          "merge_dir",
+          "mount_hide",
+          "maps_spoof",
+          "statfs_spoof",
+        ]
+      : [],
+    hooks: available ? ["d_path", "iterate_dir", "vfs_getattr"] : [],
+    rule_count: available ? 3 : 0,
+    user_hide_rule_count: kasumi.userHideRules.length,
+    mirror_path: kasumi.mirrorPath,
+    lkm,
+    config: buildMockKasumiConfig(true),
+    runtime: {
+      snapshot: {
+        status: available ? "enabled" : "unavailable",
+      },
+      kasumi_modules: available ? ["playintegrityfix"] : [],
+    },
+  };
+}
+
+export const MockAPI: AppAPI = {
+  async loadConfig(): Promise<AppConfig> {
+    await delay(300);
+    return { ...DEFAULT_CONFIG };
+  },
+  async saveConfig(config: AppConfig): Promise<void> {
+    await delay(500);
+    console.log("[Mock] Config saved:", config);
+  },
+  async resetConfig(): Promise<void> {
+    await delay(500);
+    console.log("[Mock] Config reset to defaults");
+  },
+  async scanModules(_dir?: string): Promise<Module[]> {
+    await delay(600);
+    return [
+      {
+        id: "magisk_module_1",
+        name: "Example Module",
+        version: "1.0.0",
+        author: "Developer",
+        description: "This is a mock module for testing.",
+        mode: "magic",
+        is_mounted: true,
+        rules: {
+          default_mode: "magic",
+          paths: { "system/fonts": "overlay" },
+        },
+      },
+      {
+        id: "overlay_module_2",
+        name: "System UI Overlay",
+        version: "2.5",
+        author: "Google",
+        description: "Changes system colors.",
+        mode: "overlay",
+        is_mounted: true,
+        rules: {
+          default_mode: "overlay",
+          paths: {},
+        },
+      },
+      {
+        id: "playintegrityfix",
+        name: "Play Integrity Fix",
+        version: "14.2",
+        author: "tester",
+        description: "Mirror-backed Kasumi module.",
+        mode: "kasumi",
+        is_mounted: true,
+        rules: {
+          default_mode: "kasumi",
+          paths: {},
+        },
+      },
+      {
+        id: "disabled_module",
+        name: "Umount Module",
+        version: "0.1",
+        author: "Tester",
+        description: "This module is not mounted.",
+        mode: "ignore",
+        is_mounted: false,
+        rules: {
+          default_mode: "ignore",
+          paths: {},
+        },
+      },
+    ];
+  },
+  async saveModules(modules: Module[]): Promise<void> {
+    await delay(400);
+    console.log("[Mock] Modules saved:", modules);
+  },
+  async saveModuleRules(moduleId: string, rules: ModuleRules): Promise<void> {
+    await delay(400);
+    console.log(`[Mock] Rules saved for ${moduleId}:`, rules);
+  },
+  async saveAllModuleRules(rules: Record<string, ModuleRules>): Promise<void> {
+    await delay(400);
+    console.log("[Mock] All module rules saved:", rules);
+  },
+  async getVersion(): Promise<string> {
+    await delay(100);
+    return APP_VERSION;
+  },
+  async getStorageUsage(): Promise<StorageStatus> {
+    await delay(300);
+    return {
+      type: "ext4",
+      supported_modes: ["tmpfs", "ext4"],
+    };
+  },
+  async getSystemInfo(): Promise<SystemInfo> {
+    await delay(300);
+    return {
+      kernel: "Linux localhost 5.15.0 #1 SMP PREEMPT",
+      selinux: "Enforcing",
+      mountBase: "/data/adb/meta-hybrid/mnt",
+      activeMounts: ["system", "product"],
+      tmpfs_xattr_supported: false,
+      supported_overlay_modes: ["ext4"],
+    };
+  },
+  async getKasumiStatus(): Promise<KasumiStatus> {
+    await delay(300);
+    return buildMockKasumiStatus();
+  },
+  async setKasumiEnabled(enabled: boolean): Promise<void> {
+    await delay(200);
+    mockState.kasumi.enabled = enabled;
+  },
+  async setKasumiStealth(enabled: boolean): Promise<void> {
+    await delay(200);
+    mockState.kasumi.stealth = enabled;
+  },
+  async setKasumiHidexattr(enabled: boolean): Promise<void> {
+    await delay(200);
+    mockState.kasumi.hideXattr = enabled;
+  },
+  async setKasumiDebug(enabled: boolean): Promise<void> {
+    await delay(200);
+    mockState.kasumi.kernelDebug = enabled;
+  },
+  async getOriginalKernelUname(): Promise<KernelUnameValues> {
+    await delay(120);
+    return { ...mockState.kasumi.originalKernel };
+  },
+  async setKasumiUname(uname: Partial<KasumiUnameConfig>): Promise<void> {
+    await delay(220);
+    mockState.kasumi.uname = {
+      ...mockState.kasumi.uname,
+      ...uname,
+    };
+  },
+  async clearKasumiUname(): Promise<void> {
+    await delay(160);
+    mockState.kasumi.uname = {
+      sysname: "",
+      nodename: "",
+      release: "",
+      version: "",
+      machine: "",
+      domainname: "",
+    };
+  },
+  async setKasumiCmdline(value: string): Promise<void> {
+    await delay(220);
+    mockState.kasumi.cmdline = value;
+  },
+  async clearKasumiCmdline(): Promise<void> {
+    await delay(160);
+    mockState.kasumi.cmdline = "";
+  },
+  async addKasumiMapsRule(rule): Promise<void> {
+    await delay(180);
+    const nextRule = {
+      target_ino: Number(rule.target_ino) || 0,
+      target_dev: Number(rule.target_dev) || 0,
+      spoofed_ino: Number(rule.spoofed_ino) || 0,
+      spoofed_dev: Number(rule.spoofed_dev) || 0,
+      spoofed_pathname: rule.spoofed_pathname || "",
+    };
+    mockState.kasumi.mapsRules = mockState.kasumi.mapsRules.filter(
+      (item) =>
+        !(
+          item.target_ino === nextRule.target_ino &&
+          item.target_dev === nextRule.target_dev
+        ),
+    );
+    mockState.kasumi.mapsRules.push(nextRule);
+  },
+  async clearKasumiMapsRules(): Promise<void> {
+    await delay(180);
+    mockState.kasumi.mapsRules = [];
+  },
+  async getUserHideRules(): Promise<string[]> {
+    await delay(120);
+    return [...mockState.kasumi.userHideRules];
+  },
+  async addUserHideRule(path: string): Promise<void> {
+    await delay(180);
+    if (!mockState.kasumi.userHideRules.includes(path)) {
+      mockState.kasumi.userHideRules = [
+        path,
+        ...mockState.kasumi.userHideRules,
+      ];
+    }
+  },
+  async removeUserHideRule(path: string): Promise<void> {
+    await delay(180);
+    mockState.kasumi.userHideRules = mockState.kasumi.userHideRules.filter(
+      (value) => value !== path,
+    );
+  },
+  async applyUserHideRules(): Promise<void> {
+    await delay(180);
+  },
+  async loadKasumiLkm(): Promise<void> {
+    await delay(260);
+    mockState.kasumi.lkmLoaded = true;
+  },
+  async unloadKasumiLkm(): Promise<void> {
+    await delay(260);
+    mockState.kasumi.lkmLoaded = false;
+  },
+  async setKasumiLkmAutoload(enabled: boolean): Promise<void> {
+    await delay(160);
+    mockState.kasumi.lkmAutoload = enabled;
+  },
+  async setKasumiLkmKmi(value: string): Promise<void> {
+    await delay(160);
+    mockState.kasumi.kmiOverride = value;
+  },
+  async clearKasumiLkmKmi(): Promise<void> {
+    await delay(160);
+    mockState.kasumi.kmiOverride = "";
+  },
+  async fixKasumiMounts(): Promise<void> {
+    await delay(220);
+  },
+  async clearKasumiRules(): Promise<void> {
+    await delay(220);
+  },
+  async releaseKasumiConnection(): Promise<void> {
+    await delay(120);
+  },
+  async invalidateKasumiCache(): Promise<void> {
+    await delay(120);
+  },
+  async openLink(url: string): Promise<void> {
+    await delay(60);
+    window.open(url, "_blank", "noopener,noreferrer");
+  },
+  async reboot(): Promise<void> {
+    await delay(120);
+    console.log("[Mock] Reboot requested");
+  },
+};

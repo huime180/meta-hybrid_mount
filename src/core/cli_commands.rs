@@ -17,9 +17,8 @@ use anyhow::Result;
 use crate::{
     conf::{
         cli::{
-            ApiCommands, Cli, Commands, HideCommands, KasumiCmdlineCommands, KasumiCommands,
-            KasumiHideUidsCommands, KasumiKstatCommands, KasumiMapsCommands, KasumiRuleCommands,
-            KasumiUnameCommands, LkmCommands,
+            ApiCommands, Cli, Commands, HideCommands, KasumiCommands, KasumiRuleCommands,
+            LkmCommands,
         },
         cli_handlers,
     },
@@ -44,20 +43,8 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
 
     match command {
         Commands::GenConfig { output, force } => cli_handlers::handle_gen_config(output, *force),
-        Commands::ShowConfig => cli_handlers::handle_show_config(cli),
-        Commands::SaveConfig { payload } => cli_handlers::handle_save_config(cli, payload),
-        Commands::SaveFullConfig { payload } => cli_handlers::handle_save_full_config(cli, payload),
-        Commands::SaveModuleRules { module, payload } => {
-            cli_handlers::handle_save_module_rules(cli, module, payload)
-        }
-        Commands::SaveAllModuleRules { payload } => {
-            cli_handlers::handle_save_all_module_rules(cli, payload)
-        }
-        Commands::Modules => cli_handlers::handle_modules(cli),
-        Commands::State => cli_handlers::handle_state(),
         Commands::Logs { lines } => cli_handlers::handle_logs(*lines),
         Commands::Api { command } => run_api_command(|| match command {
-            ApiCommands::System => cli_handlers::handle_api_system(cli),
             ApiCommands::Storage => cli_handlers::handle_api_storage(),
             ApiCommands::MountStats => cli_handlers::handle_api_mount_stats(),
             ApiCommands::MountTopology => cli_handlers::handle_api_mount_topology(cli),
@@ -70,11 +57,6 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
             LkmCommands::Load => cli_handlers::handle_lkm_load(cli),
             LkmCommands::Unload => cli_handlers::handle_lkm_unload(cli),
             LkmCommands::Status => cli_handlers::handle_lkm_status(cli),
-            LkmCommands::SetAutoload { state } => {
-                cli_handlers::handle_lkm_set_autoload(cli, state.enabled())
-            }
-            LkmCommands::SetKmi { kmi } => cli_handlers::handle_lkm_set_kmi(cli, kmi),
-            LkmCommands::ClearKmi => cli_handlers::handle_lkm_clear_kmi(cli),
         },
         Commands::Hide { command } => match command {
             HideCommands::List => cli_handlers::handle_hide_list(),
@@ -92,126 +74,6 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
             KasumiCommands::ReleaseConnection => cli_handlers::handle_kasumi_release_connection(),
             KasumiCommands::InvalidateCache => cli_handlers::handle_kasumi_invalidate_cache(),
             KasumiCommands::FixMounts => cli_handlers::handle_kasumi_fix_mounts(),
-            KasumiCommands::Enable => cli_handlers::handle_kasumi_set_enabled(cli, true),
-            KasumiCommands::Disable => cli_handlers::handle_kasumi_set_enabled(cli, false),
-            KasumiCommands::Hidexattr { state } => {
-                cli_handlers::handle_kasumi_set_hidexattr(cli, state.enabled())
-            }
-            KasumiCommands::SetMirror { path } => cli_handlers::handle_kasumi_set_mirror(cli, path),
-            KasumiCommands::Debug { state } => {
-                cli_handlers::handle_kasumi_set_debug(cli, state.enabled())
-            }
-            KasumiCommands::Stealth { state } => {
-                cli_handlers::handle_kasumi_set_stealth(cli, state.enabled())
-            }
-            KasumiCommands::MountHide {
-                state,
-                path_pattern,
-            } => cli_handlers::handle_kasumi_set_mount_hide(
-                cli,
-                state.enabled(),
-                path_pattern.as_deref(),
-            ),
-            KasumiCommands::MapsSpoof { state } => {
-                cli_handlers::handle_kasumi_set_maps_spoof(cli, state.enabled())
-            }
-            KasumiCommands::StatfsSpoof {
-                state,
-                path,
-                f_type,
-            } => cli_handlers::handle_kasumi_set_statfs_spoof(
-                cli,
-                state.enabled(),
-                path.as_deref(),
-                *f_type,
-            ),
-            KasumiCommands::Uname { command } => match command {
-                KasumiUnameCommands::Set {
-                    sysname,
-                    nodename,
-                    release,
-                    version,
-                    machine,
-                    domainname,
-                } => cli_handlers::handle_kasumi_set_uname(
-                    cli,
-                    sysname.as_deref(),
-                    nodename.as_deref(),
-                    release.as_deref(),
-                    version.as_deref(),
-                    machine.as_deref(),
-                    domainname.as_deref(),
-                ),
-                KasumiUnameCommands::Clear => cli_handlers::handle_kasumi_clear_uname(cli),
-            },
-            KasumiCommands::Cmdline { command } => match command {
-                KasumiCmdlineCommands::Set { value } => {
-                    cli_handlers::handle_kasumi_set_cmdline(cli, value)
-                }
-                KasumiCmdlineCommands::Clear => cli_handlers::handle_kasumi_clear_cmdline(cli),
-            },
-            KasumiCommands::HideUids { command } => match command {
-                KasumiHideUidsCommands::Set { uids } => {
-                    cli_handlers::handle_kasumi_set_hide_uids(cli, uids)
-                }
-                KasumiHideUidsCommands::Clear => cli_handlers::handle_kasumi_clear_hide_uids(cli),
-            },
-            KasumiCommands::Maps { command } => match command {
-                KasumiMapsCommands::Add {
-                    target_ino,
-                    target_dev,
-                    spoofed_ino,
-                    spoofed_dev,
-                    path,
-                } => cli_handlers::handle_kasumi_add_maps_rule(
-                    cli,
-                    *target_ino,
-                    *target_dev,
-                    *spoofed_ino,
-                    *spoofed_dev,
-                    path,
-                ),
-                KasumiMapsCommands::Clear => cli_handlers::handle_kasumi_clear_maps_rules(cli),
-            },
-            KasumiCommands::Kstat { command } => match command {
-                KasumiKstatCommands::Upsert {
-                    target_ino,
-                    target_path,
-                    spoofed_ino,
-                    spoofed_dev,
-                    spoofed_nlink,
-                    spoofed_size,
-                    spoofed_atime_sec,
-                    spoofed_atime_nsec,
-                    spoofed_mtime_sec,
-                    spoofed_mtime_nsec,
-                    spoofed_ctime_sec,
-                    spoofed_ctime_nsec,
-                    spoofed_blksize,
-                    spoofed_blocks,
-                    is_static,
-                } => cli_handlers::handle_kasumi_upsert_kstat_rule(
-                    cli,
-                    *target_ino,
-                    target_path,
-                    *spoofed_ino,
-                    *spoofed_dev,
-                    *spoofed_nlink,
-                    *spoofed_size,
-                    *spoofed_atime_sec,
-                    *spoofed_atime_nsec,
-                    *spoofed_mtime_sec,
-                    *spoofed_mtime_nsec,
-                    *spoofed_ctime_sec,
-                    *spoofed_ctime_nsec,
-                    *spoofed_blksize,
-                    *spoofed_blocks,
-                    *is_static,
-                ),
-                KasumiKstatCommands::ClearConfig => {
-                    cli_handlers::handle_kasumi_clear_kstat_rules_config(cli)
-                }
-            },
             KasumiCommands::Rule { command } => match command {
                 KasumiRuleCommands::Add {
                     target,

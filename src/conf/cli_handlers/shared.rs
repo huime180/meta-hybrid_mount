@@ -15,64 +15,22 @@
 use std::{
     fs,
     os::unix::fs::{FileTypeExt, MetadataExt},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use anyhow::{Context, Result, bail};
-use serde::de::DeserializeOwned;
 
 use crate::{
     conf::{cli::Cli, config::Config, store::ConfigSession},
     mount::kasumi as kasumi_mount,
 };
 
-pub(super) fn decode_hex_json<T: DeserializeOwned>(payload: &str, type_name: &str) -> Result<T> {
-    if !payload.len().is_multiple_of(2) {
-        bail!("Invalid hex payload length for {}", type_name);
-    }
-
-    let json_bytes = (0..payload.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&payload[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-        .with_context(|| format!("Failed to decode hex payload for {}", type_name))?;
-
-    serde_json::from_slice(&json_bytes)
-        .with_context(|| format!("Failed to parse {} JSON payload", type_name))
-}
-
-pub(super) fn load_config_session(cli: &Cli) -> Result<ConfigSession> {
-    ConfigSession::load_from_cli(cli)
-}
-
 pub(super) fn load_effective_config(cli: &Cli) -> Result<Config> {
-    Ok(load_config_session(cli)?.effective())
-}
-
-pub(super) fn update_config_for_cli<F>(cli: &Cli, update: F) -> Result<(std::path::PathBuf, Config)>
-where
-    F: FnOnce(&mut Config),
-{
-    let mut session = load_config_session(cli)?;
-    update(session.persisted_mut());
-    let effective = session.effective();
-    let path = session.save()?;
-    Ok((path, effective))
+    ConfigSession::load_persisted(cli)
 }
 
 pub(super) fn require_live_kasumi(config: &Config, description: &str) -> Result<()> {
     kasumi_mount::require_live(config, description)
-}
-
-pub(super) fn print_config_save_result(path: &Path, what: &str) {
-    println!(
-        "{what} saved to {}. Running Kasumi state was not changed; apply the runtime separately for the new config to take effect.",
-        path.display()
-    );
-}
-
-pub(super) fn clear_pathbuf(path: &mut PathBuf) {
-    *path = PathBuf::new();
 }
 
 pub(super) fn detect_rule_file_type(path: &Path) -> Result<i32> {

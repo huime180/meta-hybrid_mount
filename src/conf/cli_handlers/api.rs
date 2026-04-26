@@ -12,134 +12,79 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use super::shared::{load_effective_config, require_live_kasumi};
-use crate::{
-    conf::cli::Cli,
-    core::{api, runtime_state::RuntimeState},
-    mount::kasumi as kasumi_mount,
-};
-
-pub fn handle_api_system(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
-    let state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:api:system",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
-    let payload = api::build_system_payload(&config, &state);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).context("Failed to serialize API system payload")?
-    );
-    Ok(())
-}
+use super::shared::require_live_kasumi;
+use crate::{conf::cli::Cli, core::api, mount::kasumi as kasumi_mount};
 
 pub fn handle_api_storage() -> Result<()> {
-    let state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:api:storage",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
+    let state = crate::core::runtime_state::RuntimeState::load().unwrap_or_else(|err| {
+        crate::scoped_log!(
+            debug,
+            "cli:api:storage",
+            "fallback: reason=runtime_state_load_failed, error={:#}",
+            err
+        );
+        crate::core::runtime_state::RuntimeState::default()
+    });
     let payload = api::build_storage_payload(&state);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload)
-            .context("Failed to serialize API storage payload")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_mount_stats() -> Result<()> {
-    let state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:api:mount_stats",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
+    let state = crate::core::runtime_state::RuntimeState::load().unwrap_or_else(|err| {
+        crate::scoped_log!(
+            debug,
+            "cli:api:mount_stats",
+            "fallback: reason=runtime_state_load_failed, error={:#}",
+            err
+        );
+        crate::core::runtime_state::RuntimeState::default()
+    });
     let payload = api::build_mount_stats_payload(&state);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).context("Failed to serialize API mount stats")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_mount_topology(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
-    let state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:api:mount_topology",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
+    let config = crate::conf::loader::load_config(cli)?;
+    let state = crate::core::runtime_state::RuntimeState::load().unwrap_or_else(|err| {
+        crate::scoped_log!(
+            debug,
+            "cli:api:mount_topology",
+            "fallback: reason=runtime_state_load_failed, error={:#}",
+            err
+        );
+        crate::core::runtime_state::RuntimeState::default()
+    });
     let payload = api::build_mount_topology_payload(&config, &state);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload)
-            .context("Failed to serialize API mount topology payload")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_partitions(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
+    let config = crate::conf::loader::load_config(cli)?;
     let payload = api::build_partitions_payload(&config);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).context("Failed to serialize API partitions")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_lkm(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
+    let config = crate::conf::loader::load_config(cli)?;
     let payload = api::build_lkm_payload(&config);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).context("Failed to serialize API lkm payload")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_features() -> Result<()> {
     let payload = api::build_features_payload();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&payload).context("Failed to serialize API features")?
-    );
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
 pub fn handle_api_hooks(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
+    let config = crate::conf::loader::load_config(cli)?;
     require_live_kasumi(&config, "read Kasumi hooks")?;
     println!("{}", kasumi_mount::hook_lines()?.join("\n"));
     Ok(())

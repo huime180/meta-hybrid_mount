@@ -14,18 +14,12 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::Serialize;
 
-use super::shared::{
-    clear_pathbuf, detect_rule_file_type, load_effective_config, print_config_save_result,
-    require_live_kasumi, update_config_for_cli,
-};
+use super::shared::{detect_rule_file_type, load_effective_config, require_live_kasumi};
 use crate::{
-    conf::{
-        cli::Cli,
-        schema::{KasumiConfig, KasumiKstatRuleConfig, KasumiMapsRuleConfig},
-    },
+    conf::{cli::Cli, schema::KasumiConfig},
     core::{
         api::{self, LkmPayload},
         runtime_state::{KasumiRuntimeInfo, RuntimeState},
@@ -59,18 +53,15 @@ struct KasumiStatusRuntime {
 
 pub fn handle_kasumi_status(cli: &Cli) -> Result<()> {
     let config = load_effective_config(cli)?;
-    let runtime_state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:kasumi:status",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
+    let runtime_state = RuntimeState::load().unwrap_or_else(|err| {
+        crate::scoped_log!(
+            debug,
+            "cli:kasumi:status",
+            "fallback: reason=runtime_state_load_failed, error={:#}",
+            err
+        );
+        RuntimeState::default()
+    });
     let kasumi_info = kasumi_mount::collect_runtime_info(&config);
 
     let output = KasumiStatusPayload {
@@ -115,18 +106,15 @@ pub fn handle_kasumi_list(cli: &Cli) -> Result<()> {
 
 pub fn handle_kasumi_version(cli: &Cli) -> Result<()> {
     let config = load_effective_config(cli)?;
-    let state = match RuntimeState::load() {
-        Ok(state) => state,
-        Err(err) => {
-            crate::scoped_log!(
-                debug,
-                "cli:kasumi:version",
-                "fallback: reason=runtime_state_load_failed, error={:#}",
-                err
-            );
-            RuntimeState::default()
-        }
-    };
+    let state = RuntimeState::load().unwrap_or_else(|err| {
+        crate::scoped_log!(
+            debug,
+            "cli:kasumi:version",
+            "fallback: reason=runtime_state_load_failed, error={:#}",
+            err
+        );
+        RuntimeState::default()
+    });
     let payload = api::build_kasumi_version_payload(&config, &state);
     println!(
         "{}",
@@ -174,302 +162,6 @@ pub fn handle_kasumi_fix_mounts() -> Result<()> {
     kasumi::fix_mounts()?;
     crate::scoped_log!(info, "cli:kasumi:fix_mounts", "complete");
     println!("Kasumi mount ordering fixed.");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_enabled(cli: &Cli, enabled: bool) -> Result<()> {
-    crate::scoped_log!(info, "cli:kasumi:set_enabled", "start: enabled={}", enabled);
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enabled = enabled;
-    })?;
-    kasumi::invalidate_status_cache();
-    crate::scoped_log!(
-        info,
-        "cli:kasumi:set_enabled",
-        "complete: enabled={}, path={}",
-        enabled,
-        path.display()
-    );
-    print_config_save_result(
-        &path,
-        if enabled {
-            "Kasumi enabled state"
-        } else {
-            "Kasumi disabled state"
-        },
-    );
-    Ok(())
-}
-
-pub fn handle_kasumi_set_hidexattr(cli: &Cli, enabled: bool) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_hidexattr = enabled;
-    })?;
-    print_config_save_result(&path, "Kasumi hidexattr setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_mirror(cli: &Cli, path_value: &Path) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.mirror_path = path_value.to_path_buf();
-    })?;
-    print_config_save_result(&path, "Kasumi mirror path");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_debug(cli: &Cli, enabled: bool) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_kernel_debug = enabled;
-    })?;
-    print_config_save_result(&path, "Kasumi kernel debug setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_stealth(cli: &Cli, enabled: bool) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_stealth = enabled;
-    })?;
-    print_config_save_result(&path, "Kasumi stealth setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_mount_hide(
-    cli: &Cli,
-    enabled: bool,
-    path_pattern: Option<&Path>,
-) -> Result<()> {
-    let (save_path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_mount_hide = enabled;
-        config.kasumi.mount_hide.enabled = enabled;
-        if enabled {
-            if let Some(path_pattern) = path_pattern {
-                config.kasumi.mount_hide.path_pattern = path_pattern.to_path_buf();
-            }
-        } else {
-            clear_pathbuf(&mut config.kasumi.mount_hide.path_pattern);
-        }
-    })?;
-    print_config_save_result(&save_path, "Kasumi mount_hide setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_maps_spoof(cli: &Cli, enabled: bool) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_maps_spoof = enabled;
-    })?;
-    print_config_save_result(&path, "Kasumi maps_spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_statfs_spoof(
-    cli: &Cli,
-    enabled: bool,
-    path_value: Option<&Path>,
-    spoof_f_type: Option<u64>,
-) -> Result<()> {
-    let (save_path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.enable_statfs_spoof = enabled;
-        config.kasumi.statfs_spoof.enabled = enabled;
-        if enabled {
-            if let Some(path) = path_value {
-                config.kasumi.statfs_spoof.path = path.to_path_buf();
-            }
-            if let Some(spoof_f_type) = spoof_f_type {
-                config.kasumi.statfs_spoof.spoof_f_type = spoof_f_type;
-            }
-        } else {
-            clear_pathbuf(&mut config.kasumi.statfs_spoof.path);
-            config.kasumi.statfs_spoof.spoof_f_type = 0;
-        }
-    })?;
-    print_config_save_result(&save_path, "Kasumi statfs_spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_uname(
-    cli: &Cli,
-    sysname: Option<&str>,
-    nodename: Option<&str>,
-    release: Option<&str>,
-    version: Option<&str>,
-    machine: Option<&str>,
-    domainname: Option<&str>,
-) -> Result<()> {
-    if sysname.is_none()
-        && nodename.is_none()
-        && release.is_none()
-        && version.is_none()
-        && machine.is_none()
-        && domainname.is_none()
-    {
-        bail!("No uname fields were provided. Use `kasumi uname clear` to clear spoofing.");
-    }
-
-    let (path, _) = update_config_for_cli(cli, |config| {
-        if let Some(value) = sysname {
-            config.kasumi.uname.sysname = value.to_string();
-        }
-        if let Some(value) = nodename {
-            config.kasumi.uname.nodename = value.to_string();
-        }
-        if let Some(value) = release {
-            config.kasumi.uname.release = value.to_string();
-        }
-        if let Some(value) = version {
-            config.kasumi.uname.version = value.to_string();
-        }
-        if let Some(value) = machine {
-            config.kasumi.uname.machine = value.to_string();
-        }
-        if let Some(value) = domainname {
-            config.kasumi.uname.domainname = value.to_string();
-        }
-    })?;
-    print_config_save_result(&path, "Kasumi uname spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_clear_uname(cli: &Cli) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.uname = Default::default();
-    })?;
-    print_config_save_result(&path, "Kasumi uname spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_cmdline(cli: &Cli, value: &str) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.cmdline_value = value.to_string();
-    })?;
-    print_config_save_result(&path, "Kasumi cmdline spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_clear_cmdline(cli: &Cli) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.cmdline_value.clear();
-    })?;
-    print_config_save_result(&path, "Kasumi cmdline spoof setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_set_hide_uids(cli: &Cli, uids: &[u32]) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.hide_uids = uids.to_vec();
-    })?;
-    print_config_save_result(&path, "Kasumi hide_uids setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_clear_hide_uids(cli: &Cli) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.hide_uids.clear();
-    })?;
-    print_config_save_result(&path, "Kasumi hide_uids setting");
-    Ok(())
-}
-
-pub fn handle_kasumi_add_maps_rule(
-    cli: &Cli,
-    target_ino: u64,
-    target_dev: u64,
-    spoofed_ino: u64,
-    spoofed_dev: u64,
-    path: &Path,
-) -> Result<()> {
-    let new_rule = KasumiMapsRuleConfig {
-        target_ino,
-        target_dev,
-        spoofed_ino,
-        spoofed_dev,
-        spoofed_pathname: path.to_path_buf(),
-    };
-
-    let (path_out, _) = update_config_for_cli(cli, |config| {
-        if let Some(existing) = config
-            .kasumi
-            .maps_rules
-            .iter_mut()
-            .find(|rule| rule.target_ino == target_ino && rule.target_dev == target_dev)
-        {
-            *existing = new_rule.clone();
-        } else {
-            config.kasumi.maps_rules.push(new_rule.clone());
-        }
-    })?;
-    print_config_save_result(&path_out, "Kasumi maps rule");
-    Ok(())
-}
-
-pub fn handle_kasumi_clear_maps_rules(cli: &Cli) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.maps_rules.clear();
-    })?;
-    print_config_save_result(&path, "Kasumi maps rules");
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn handle_kasumi_upsert_kstat_rule(
-    cli: &Cli,
-    target_ino: u64,
-    target_path: &Path,
-    spoofed_ino: u64,
-    spoofed_dev: u64,
-    spoofed_nlink: u32,
-    spoofed_size: i64,
-    spoofed_atime_sec: i64,
-    spoofed_atime_nsec: i64,
-    spoofed_mtime_sec: i64,
-    spoofed_mtime_nsec: i64,
-    spoofed_ctime_sec: i64,
-    spoofed_ctime_nsec: i64,
-    spoofed_blksize: u64,
-    spoofed_blocks: u64,
-    is_static: bool,
-) -> Result<()> {
-    let new_rule = KasumiKstatRuleConfig {
-        target_ino,
-        target_pathname: target_path.to_path_buf(),
-        spoofed_ino,
-        spoofed_dev,
-        spoofed_nlink,
-        spoofed_size,
-        spoofed_atime_sec,
-        spoofed_atime_nsec,
-        spoofed_mtime_sec,
-        spoofed_mtime_nsec,
-        spoofed_ctime_sec,
-        spoofed_ctime_nsec,
-        spoofed_blksize,
-        spoofed_blocks,
-        is_static,
-    };
-
-    let (path, _) = update_config_for_cli(cli, |config| {
-        if let Some(existing) = config
-            .kasumi
-            .kstat_rules
-            .iter_mut()
-            .find(|rule| rule.target_ino == target_ino && rule.target_pathname == target_path)
-        {
-            *existing = new_rule.clone();
-        } else {
-            config.kasumi.kstat_rules.push(new_rule.clone());
-        }
-    })?;
-    print_config_save_result(&path, "Kasumi kstat rule");
-    Ok(())
-}
-
-pub fn handle_kasumi_clear_kstat_rules_config(cli: &Cli) -> Result<()> {
-    let (path, _) = update_config_for_cli(cli, |config| {
-        config.kasumi.kstat_rules.clear();
-    })?;
-    println!(
-        "Kasumi kstat rules were removed from {}. Existing kernel kstat spoof rules may persist until the LKM is reloaded.",
-        path.display()
-    );
     Ok(())
 }
 

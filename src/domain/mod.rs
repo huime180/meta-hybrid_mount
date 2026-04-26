@@ -56,15 +56,6 @@ impl MountMode {
             Self::Ignore => "ignore",
         }
     }
-
-    pub fn as_module_mode_label(&self) -> &'static str {
-        match self {
-            Self::Overlay => "auto",
-            Self::Magic => "magic",
-            Self::Kasumi => "kasumi",
-            Self::Ignore => "ignore",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

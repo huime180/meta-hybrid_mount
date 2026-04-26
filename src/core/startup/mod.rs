@@ -12,20 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod recovery;
-
 use anyhow::{Context, Result};
 
 use crate::{
-    conf::{cli::Cli, config::Config, loader, store::ConfigOverrides},
+    conf::{cli::Cli, loader},
     defs, sys, utils,
 };
 
-fn load_final_config(cli: &Cli) -> Result<Config> {
-    let mut config = loader::load_startup_config(cli)?;
-    ConfigOverrides::from_cli(cli).apply_to(&mut config);
-    Ok(config)
-}
+mod recovery;
 
 pub fn run(cli: &Cli) -> Result<()> {
     sys::fs::ensure_dir_exists(defs::RUN_DIR)
@@ -45,7 +39,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         );
     }
 
-    let config = load_final_config(cli)?;
+    let config = loader::load_startup_config(cli)?;
 
     if let Ok(version) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
         crate::scoped_log!(debug, "startup", "kernel: version={}", version.trim());

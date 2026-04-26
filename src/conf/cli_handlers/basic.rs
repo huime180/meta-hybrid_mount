@@ -18,16 +18,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use super::shared::{decode_hex_json, load_config_session, load_effective_config};
-use crate::{
-    conf::{
-        cli::Cli,
-        config::{self, Config},
-        store::ConfigPatch,
-    },
-    core::{inventory::listing as modules, runtime_state::RuntimeState},
-    utils,
-};
+use crate::conf::config::Config;
 
 pub fn handle_gen_config(output: &Path, force: bool) -> Result<()> {
     if output.exists() && !force {
@@ -40,88 +31,6 @@ pub fn handle_gen_config(output: &Path, force: bool) -> Result<()> {
     Config::default()
         .save_to_file(output)
         .with_context(|| format!("Failed to save generated config to {}", output.display()))
-}
-
-pub fn handle_show_config(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
-    let json = serde_json::to_string(&config).context("Failed to serialize config to JSON")?;
-    println!("{}", json);
-    Ok(())
-}
-
-pub fn handle_save_config(cli: &Cli, payload: &str) -> Result<()> {
-    let patch: ConfigPatch = decode_hex_json(payload, "config")?;
-    let mut session = load_config_session(cli)?;
-    session.apply_patch(patch);
-    let path = session.save().context("Failed to save config file")?;
-
-    println!("Configuration saved successfully to {}.", path.display());
-    Ok(())
-}
-
-pub fn handle_save_full_config(cli: &Cli, payload: &str) -> Result<()> {
-    let full_config: Config = decode_hex_json(payload, "full config")?;
-    let mut session = load_config_session(cli)?;
-    *session.persisted_mut() = full_config;
-    let path = session.save().context("Failed to save full config file")?;
-
-    println!("Full configuration saved to {}.", path.display());
-    Ok(())
-}
-
-pub fn handle_save_module_rules(cli: &Cli, module_id: &str, payload: &str) -> Result<()> {
-    utils::validate_module_id(module_id)?;
-    let new_rules: config::ModuleRules = decode_hex_json(payload, "module rules")?;
-    let mut session = load_config_session(cli)?;
-    session.save_module_rules(module_id, new_rules);
-    let path = session
-        .save()
-        .context("Failed to update config file with new rules")?;
-
-    println!(
-        "Module rules saved for {} into {}",
-        module_id,
-        path.display()
-    );
-    Ok(())
-}
-
-pub fn handle_save_all_module_rules(cli: &Cli, payload: &str) -> Result<()> {
-    use std::collections::HashMap;
-
-    let all_rules: HashMap<String, config::ModuleRules> =
-        decode_hex_json(payload, "all module rules")?;
-    let mut session = load_config_session(cli)?;
-
-    for (module_id, rules) in &all_rules {
-        utils::validate_module_id(module_id)?;
-        session.save_module_rules(module_id, rules.clone());
-    }
-
-    let path = session
-        .save()
-        .context("Failed to update config file with batch rules")?;
-
-    println!(
-        "Batch saved {} module rules into {}",
-        all_rules.len(),
-        path.display()
-    );
-    Ok(())
-}
-
-pub fn handle_modules(cli: &Cli) -> Result<()> {
-    let config = load_effective_config(cli)?;
-    modules::print_list(&config).context("Failed to list modules")
-}
-
-pub fn handle_state() -> Result<()> {
-    let state = RuntimeState::load().context("Failed to load runtime state")?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&state).context("Failed to serialize runtime state")?
-    );
-    Ok(())
 }
 
 pub fn handle_logs(lines: usize) -> Result<()> {
