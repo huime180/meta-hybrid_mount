@@ -71,6 +71,18 @@ jobs:
           cache-dependency-path: webui/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Generate constants
+        run: |
+          cat <<'EOF' > src/lib/constants_gen.ts
+          export const APP_VERSION = "dev";
+          export const IS_RELEASE = false;
+          export const RUST_PATHS = {
+            CONFIG: "/data/adb/hybrid-mount/config.toml",
+            DAEMON_STATE: "/data/adb/hybrid-mount/run/daemon_state.json",
+            BINARY: "/data/adb/modules/hybrid_mount/hybrid-mount",
+          } as const;
+          EOF
+          pnpm generate:info-tab-data
       - name: Run lint
         run: pnpm lint
       - name: Run test
