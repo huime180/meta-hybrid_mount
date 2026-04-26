@@ -28,8 +28,8 @@ use crate::{
     conf::config::Config,
     core::{
         backend_capabilities::BackendCapabilities,
-        kasumi_coordinator::KasumiCoordinator,
         inventory::{self},
+        kasumi_coordinator::KasumiCoordinator,
         ops::{
             executor::{self},
             plan::MountPlan,

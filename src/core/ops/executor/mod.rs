@@ -25,8 +25,8 @@ use crate::mount::umount_mgr;
 use crate::{
     conf::config,
     core::{
-        kasumi_coordinator::KasumiCoordinator,
         inventory::Module,
+        kasumi_coordinator::KasumiCoordinator,
         ops::plan::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
         runtime_state::MountStatistics,

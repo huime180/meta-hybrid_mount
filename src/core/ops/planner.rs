@@ -26,8 +26,8 @@ use crate::{
     conf::config,
     core::{
         backend_capabilities::BackendCapabilities,
-        kasumi_coordinator::KasumiCoordinator,
         inventory::Module,
+        kasumi_coordinator::KasumiCoordinator,
         ops::plan::{MountPlan, OverlayOperation},
     },
     domain::MountMode,
