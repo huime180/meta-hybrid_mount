@@ -22,16 +22,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use rustix::mount::{UnmountFlags, unmount as umount};
 
 use crate::{
     core::storage::backends::Ext4Backend,
     mount::overlayfs::utils as overlay_utils,
-    sys::{
-        fs::{ensure_dir_exists, lsetfilecon},
-        nuke,
-    },
+    sys::fs::{ensure_dir_exists, lsetfilecon},
 };
 
 pub(super) fn setup_ext4_image(
@@ -59,7 +54,6 @@ pub(super) fn setup_ext4_image(
     ensure_dir_exists(target)?;
 
     mount_ext4_with_repair(img_path, target)?;
-    reset_mount_state(target)?;
 
     Ok(Ext4Backend::new(target))
 }
@@ -173,27 +167,6 @@ fn mount_ext4_with_repair(img_path: &Path, target: &Path) -> Result<()> {
         } else {
             bail!("Failed to repair modules.img");
         }
-    }
-    Ok(())
-}
-
-fn reset_mount_state(target: &Path) -> Result<()> {
-    if let Err(err) = nuke::nuke_path(target) {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        {
-            if let Err(unmount_err) = umount(target, UnmountFlags::DETACH) {
-                return Err(err.context(format!(
-                    "failed to reset mounted ext4 state at {} and failed to detach mount: {:#}",
-                    target.display(),
-                    unmount_err
-                )));
-            }
-        }
-
-        return Err(err.context(format!(
-            "failed to reset mounted ext4 state at {}",
-            target.display()
-        )));
     }
     Ok(())
 }
