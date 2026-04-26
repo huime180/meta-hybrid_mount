@@ -1,4 +1,48 @@
 
+## v3.5.6
+
+
+### <!-- 1 --> Features
+
+- `kasumi` Rename hymo -> kasumi
+
+- Add nuke functionality before cleanup for ext4 storage mode
+
+- Enhance module status update with kasumi_enabled flag
+
+
+
+### <!-- 2 --> Fixes
+
+- Update git remote URL for HymoFS source to Kasumi repository
+
+- Enhance module build process to handle multiple .ko files
+
+- `ci` Generate webui files before lint
+
+
+
+### <!-- 4 --> Refactors
+
+- Inline webui and remove config/status CLI bridge Move WebUI into the main repository, make runtime state read from daemon_state.json and configuration read/write from config.toml, and fold WebUI CI/dependabot into the main repo so the old submodule sync flow can be removed. Co-authored-by: 7a72 <11066204+7a72@users.noreply.github.com> Co-authored-by: 7a72 <git@zrlab.org> Co-authored-by: Anan <an@anatdx.com> Co-authored-by: KOWX712 <leecc0503@gmail.com> Co-authored-by: The Primal Pea <92656767+ThePrimalPea@users.noreply.github.com> Co-authored-by: ThePrimalPea <92656767+ThePrimalPea@users.noreply.github.com> Co-authored-by: Tools-app <localhost.hutao@gmail.com> Co-authored-by: UlasuNoka <ulasu.noka@gmail.com> Co-authored-by: YuzakiKokuban <heibanbaize@gmail.com> Co-authored-by: backslashxx <118538522+backslashxx@users.noreply.github.com> Co-authored-by: kuchazi <154660013+pkczc@users.noreply.github.com> Co-authored-by: lamprose <29279979+lamprose@users.noreply.github.com> Co-authored-by: luigimak <luigimak@hotmail.it> Co-authored-by: 由崎黑板 <94628337+YuzakiKokuban@users.noreply.github.com>
+
+- Update build workflow to trigger on workflow_run and simplify conditions
+
+
+
+### <!-- 8 --> Maintenance
+
+- Revert "refactor: update build workflow to trigger on workflow_run and simplify conditions" This reverts commit 736332d6ccdfe59c6b6e38399a6191a2f2c8232c.
+
+
+
+### <!-- 9 --> Other
+
+- Make cargo clippy happy
+
+
+
+
 ## v3.5.5
 
 ### <!-- 1 --> Features
