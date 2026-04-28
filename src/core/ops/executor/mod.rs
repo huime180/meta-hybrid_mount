@@ -25,8 +25,8 @@ use crate::mount::umount_mgr;
 use crate::{
     conf::config,
     core::{
-        hymofs_coordinator::HymofsCoordinator,
         inventory::Module,
+        kasumi_coordinator::KasumiCoordinator,
         ops::plan::MountPlan,
         recovery::{FailureStage, ModuleStageFailure},
         runtime_state::MountStatistics,
@@ -37,8 +37,8 @@ pub struct ExecutionResult {
     pub overlay_module_ids: Vec<String>,
     pub overlay_partitions: Vec<String>,
     pub magic_module_ids: Vec<String>,
-    pub hymofs_module_ids: Vec<String>,
-    pub hymofs_runtime_enabled: bool,
+    pub kasumi_module_ids: Vec<String>,
+    pub kasumi_runtime_enabled: bool,
     pub mount_stats: MountStatistics,
 }
 
@@ -57,39 +57,39 @@ impl Executor {
         crate::scoped_log!(
             info,
             "executor",
-            "start: overlay_ops={}, preselected_magic_modules={}, preselected_hymofs_modules={}",
+            "start: overlay_ops={}, preselected_magic_modules={}, preselected_kasumi_modules={}",
             plan.overlay_ops.len(),
             plan.magic_module_ids.len(),
-            plan.hymofs_module_ids.len()
+            plan.kasumi_module_ids.len()
         );
         let mut final_magic_ids: BTreeSet<String> = plan.magic_module_ids.iter().cloned().collect();
         let mut final_overlay_ids: BTreeSet<String> = BTreeSet::new();
         let mut final_overlay_partitions: BTreeSet<String> = BTreeSet::new();
-        let planned_hymofs_ids = plan.hymofs_module_ids.clone();
+        let planned_kasumi_ids = plan.kasumi_module_ids.clone();
         let mut mount_stats = MountStatistics::default();
-        let hymofs = HymofsCoordinator::new(config);
+        let kasumi = KasumiCoordinator::new(config);
 
-        let hymofs_available = if config.hymofs.enabled {
-            hymofs.reset_runtime().map_err(|err| {
+        let kasumi_available = if config.kasumi.enabled {
+            kasumi.reset_runtime().map_err(|err| {
                 ModuleStageFailure::new(
                     FailureStage::Execute,
-                    planned_hymofs_ids.clone(),
-                    anyhow::anyhow!("Failed to reset HymoFS runtime: {:#}", err),
+                    planned_kasumi_ids.clone(),
+                    anyhow::anyhow!("Failed to reset Kasumi runtime: {:#}", err),
                 )
             })?
         } else {
             crate::scoped_log!(
                 debug,
                 "executor",
-                "hymofs disabled: skip_runtime_reset=true"
+                "kasumi disabled: skip_runtime_reset=true"
             );
             false
         };
-        if !hymofs_available && !planned_hymofs_ids.is_empty() {
+        if !kasumi_available && !planned_kasumi_ids.is_empty() {
             return Err(ModuleStageFailure::new(
                 FailureStage::Execute,
-                planned_hymofs_ids.clone(),
-                anyhow::anyhow!("HymoFS became unavailable before execution"),
+                planned_kasumi_ids.clone(),
+                anyhow::anyhow!("Kasumi became unavailable before execution"),
             )
             .into());
         }
@@ -105,7 +105,7 @@ impl Executor {
                     op.target,
                     op.lowerdirs.len()
                 );
-                match overlay::mount_overlay(op, config, &hymofs) {
+                match overlay::mount_overlay(op, config, &kasumi) {
                     Ok(ids) => {
                         crate::scoped_log!(
                             info,
@@ -192,10 +192,10 @@ impl Executor {
             );
         }
 
-        plan.hymofs_add_rules.clear();
-        plan.hymofs_merge_rules.clear();
-        plan.hymofs_hide_rules.clear();
-        let final_hymofs_ids = plan.hymofs_module_ids.clone();
+        plan.kasumi_add_rules.clear();
+        plan.kasumi_merge_rules.clear();
+        plan.kasumi_hide_rules.clear();
+        let final_kasumi_ids = plan.kasumi_module_ids.clone();
 
         let magic_need_list: Vec<String> = final_magic_ids.iter().cloned().collect();
 
@@ -211,7 +211,7 @@ impl Executor {
                 &magic_need_list,
                 config,
                 tempdir.as_ref(),
-                hymofs_available,
+                kasumi_available,
             )
             .map_err(|err| {
                 let failed_module_ids =
@@ -237,19 +237,19 @@ impl Executor {
             );
         }
 
-        let hymofs_runtime_enabled = if config.hymofs.enabled {
-            hymofs.apply_runtime(plan, modules).map_err(|err| {
+        let kasumi_runtime_enabled = if config.kasumi.enabled {
+            kasumi.apply_runtime(plan, modules).map_err(|err| {
                 ModuleStageFailure::new(
                     FailureStage::Execute,
-                    final_hymofs_ids.clone(),
-                    anyhow::anyhow!("Failed to apply HymoFS late rules: {:#}", err),
+                    final_kasumi_ids.clone(),
+                    anyhow::anyhow!("Failed to apply Kasumi late rules: {:#}", err),
                 )
             })?
         } else {
             crate::scoped_log!(
                 debug,
                 "executor",
-                "hymofs disabled: skip_runtime_apply=true"
+                "kasumi disabled: skip_runtime_apply=true"
             );
             false
         };
@@ -265,18 +265,18 @@ impl Executor {
         crate::scoped_log!(
             info,
             "executor",
-            "complete: overlay_modules={}, magic_modules={}, hymofs_modules={}",
+            "complete: overlay_modules={}, magic_modules={}, kasumi_modules={}",
             result_overlay.len(),
             result_magic.len(),
-            final_hymofs_ids.len()
+            final_kasumi_ids.len()
         );
 
         Ok(ExecutionResult {
             overlay_module_ids: result_overlay,
             overlay_partitions: final_overlay_partitions.into_iter().collect(),
             magic_module_ids: result_magic,
-            hymofs_module_ids: final_hymofs_ids,
-            hymofs_runtime_enabled,
+            kasumi_module_ids: final_kasumi_ids,
+            kasumi_runtime_enabled,
             mount_stats,
         })
     }

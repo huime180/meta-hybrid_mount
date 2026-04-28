@@ -1,0 +1,74 @@
+# Copyright (C) 2026 YuzakiKokuban <heibanbaize@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Build LKM for Kasumi
+
+on:
+  workflow_call:
+    inputs:
+      full_archs:
+        description: "Reserved input; DDK workflow currently builds arm64 only"
+        required: false
+        default: false
+        type: boolean
+      kasumi_ref:
+        description: "Kasumi git ref (branch/tag/commit)"
+        required: false
+        default: "main"
+        type: string
+      ddk_release:
+        description: "DDK release version"
+        required: false
+        default: "20251104"
+        type: string
+  workflow_dispatch:
+    inputs:
+      full_archs:
+        description: "Reserved input; DDK workflow currently builds arm64 only"
+        required: false
+        default: false
+        type: boolean
+      kasumi_ref:
+        description: "Kasumi git ref (branch/tag/commit)"
+        required: false
+        default: "main"
+        type: string
+      ddk_release:
+        description: "DDK release version"
+        required: false
+        default: "20251104"
+        type: string
+
+jobs:
+  build-kasumi-lkm:
+    strategy:
+      fail-fast: false
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+        arch:
+          - arm64
+    uses: ./.github/workflows/kasumi-lkm.yml
+    secrets: inherit
+    with:
+      kmi: ${{ matrix.kmi }}
+      arch: ${{ matrix.arch }}
+      kasumi_ref: ${{ inputs.kasumi_ref }}
+      ddk_release: ${{ inputs.ddk_release }}

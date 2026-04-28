@@ -28,7 +28,7 @@ pub(super) fn mount_magic(
     ids: &[String],
     config: &config::Config,
     tempdir: &Path,
-    use_hymofs: bool,
+    use_kasumi: bool,
 ) -> Result<(Vec<String>, MountStatistics)> {
     let magic_ws_path = tempdir.join("magic_workspace");
 
@@ -58,7 +58,7 @@ pub(super) fn mount_magic(
         MagicMountOptions {
             mount_source: &config.mountsource,
             managed_partitions: &managed_partitions,
-            use_hymofs,
+            use_kasumi,
             overlay_fallback_enabled: config.enable_overlay_fallback,
         },
         &selected_modules,

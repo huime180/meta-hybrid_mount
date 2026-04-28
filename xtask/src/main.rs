@@ -35,7 +35,7 @@ const KPM_ENV_DIR: &str = "HYBRID_MOUNT_KPM_DIR";
 const KPM_PROJECT_DIR_CANDIDATES: [&str; 2] = ["nuke-kpm", "kpm"];
 const KPM_MODULE_NAME: &str = "nuke_ext4_sysfs";
 const KPM_STAGE_NAME: &str = "nuke_ext4_sysfs.kpm";
-const HYMOFS_LKM_STAGE_DIR: &str = "hymofs_lkm";
+const KASUMI_LKM_STAGE_DIR: &str = "kasumi_lkm";
 
 #[derive(Deserialize)]
 struct HybridMountMetadata {
@@ -223,7 +223,7 @@ fn build_full(
     let options = dir::CopyOptions::new().overwrite(true).content_only(true);
     dir::copy(module_src, &stage_dir, &options)?;
     stage_kpm_assets(&stage_dir, cargo_release)?;
-    stage_hymofs_lkm_assets(&stage_dir)?;
+    stage_kasumi_lkm_assets(&stage_dir)?;
 
     generate_module_prop(&stage_dir, version_info)?;
 
@@ -348,27 +348,27 @@ fn resolve_kpm_project_dir() -> Option<PathBuf> {
         .find(|path| path.is_dir())
 }
 
-fn stage_hymofs_lkm_assets(stage_dir: &Path) -> Result<()> {
-    let Some(source_dir) = env::var_os("HYBRID_MOUNT_HYMOFS_LKM_DIR").map(PathBuf::from) else {
+fn stage_kasumi_lkm_assets(stage_dir: &Path) -> Result<()> {
+    let Some(source_dir) = env::var_os("HYBRID_MOUNT_KASUMI_LKM_DIR").map(PathBuf::from) else {
         return Ok(());
     };
 
     if !source_dir.is_dir() {
         bail!(
-            "HYBRID_MOUNT_HYMOFS_LKM_DIR must point to a directory containing .ko files: {}",
+            "HYBRID_MOUNT_KASUMI_LKM_DIR must point to a directory containing .ko files: {}",
             source_dir.display()
         );
     }
 
-    let artifacts = collect_hymofs_lkm_artifacts(&source_dir)?;
+    let artifacts = collect_kasumi_lkm_artifacts(&source_dir)?;
     if artifacts.is_empty() {
         bail!(
-            "No .ko files were found under HYBRID_MOUNT_HYMOFS_LKM_DIR={}",
+            "No .ko files were found under HYBRID_MOUNT_KASUMI_LKM_DIR={}",
             source_dir.display()
         );
     }
 
-    let lkm_stage_dir = stage_dir.join(HYMOFS_LKM_STAGE_DIR);
+    let lkm_stage_dir = stage_dir.join(KASUMI_LKM_STAGE_DIR);
     fs::create_dir_all(&lkm_stage_dir)?;
 
     for artifact in artifacts {
@@ -385,7 +385,7 @@ fn stage_hymofs_lkm_assets(stage_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_hymofs_lkm_artifacts(source_dir: &Path) -> Result<Vec<PathBuf>> {
+fn collect_kasumi_lkm_artifacts(source_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut stack = vec![source_dir.to_path_buf()];
     let mut artifacts = Vec::new();
 

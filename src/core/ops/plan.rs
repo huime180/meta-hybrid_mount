@@ -22,14 +22,14 @@ pub struct OverlayOperation {
 }
 
 #[derive(Debug, Clone)]
-pub struct HymofsAddRule {
+pub struct KasumiAddRule {
     pub target: String,
     pub source: PathBuf,
     pub file_type: i32,
 }
 
 #[derive(Debug, Clone)]
-pub struct HymofsMergeRule {
+pub struct KasumiMergeRule {
     pub target: String,
     pub source: PathBuf,
 }
@@ -37,10 +37,10 @@ pub struct HymofsMergeRule {
 #[derive(Debug, Default)]
 pub struct MountPlan {
     pub overlay_ops: Vec<OverlayOperation>,
-    pub hymofs_add_rules: Vec<HymofsAddRule>,
-    pub hymofs_merge_rules: Vec<HymofsMergeRule>,
-    pub hymofs_hide_rules: Vec<String>,
+    pub kasumi_add_rules: Vec<KasumiAddRule>,
+    pub kasumi_merge_rules: Vec<KasumiMergeRule>,
+    pub kasumi_hide_rules: Vec<String>,
     pub overlay_module_ids: Vec<String>,
     pub magic_module_ids: Vec<String>,
-    pub hymofs_module_ids: Vec<String>,
+    pub kasumi_module_ids: Vec<String>,
 }

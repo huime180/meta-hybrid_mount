@@ -26,7 +26,7 @@ use crate::{
     conf::config::Config,
     core::ops::executor::ExecutionResult,
     defs,
-    mount::hymofs,
+    mount::kasumi,
     sys::fs::{atomic_write, xattr},
 };
 
@@ -118,11 +118,11 @@ pub struct ModuleModeStats {
     #[serde(default)]
     pub magicmount: usize,
     #[serde(default)]
-    pub hymofs: usize,
+    pub kasumi: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct HymoFsRuntimeInfo {
+pub struct KasumiRuntimeInfo {
     #[serde(default)]
     pub status: String,
     #[serde(default)]
@@ -162,7 +162,7 @@ pub struct RuntimeState {
     pub overlay_modules: Vec<String>,
     pub magic_modules: Vec<String>,
     #[serde(default)]
-    pub hymofs_modules: Vec<String>,
+    pub kasumi_modules: Vec<String>,
     #[serde(default)]
     pub mount_error_modules: Vec<String>,
     #[serde(default)]
@@ -178,7 +178,7 @@ pub struct RuntimeState {
     #[serde(default)]
     pub mode_stats: ModuleModeStats,
     #[serde(default)]
-    pub hymofs: HymoFsRuntimeInfo,
+    pub kasumi: KasumiRuntimeInfo,
 }
 
 impl RuntimeState {
@@ -188,11 +188,11 @@ impl RuntimeState {
         mount_point: PathBuf,
         overlay_modules: Vec<String>,
         magic_modules: Vec<String>,
-        hymofs_modules: Vec<String>,
+        kasumi_modules: Vec<String>,
         active_mounts: Vec<String>,
         mount_stats: MountStatistics,
         mode_stats: ModuleModeStats,
-        hymofs: HymoFsRuntimeInfo,
+        kasumi: KasumiRuntimeInfo,
     ) -> Self {
         let start = SystemTime::now();
 
@@ -212,7 +212,7 @@ impl RuntimeState {
             mount_point,
             overlay_modules,
             magic_modules,
-            hymofs_modules,
+            kasumi_modules,
             mount_error_modules: Vec::new(),
             mount_error_reasons: BTreeMap::new(),
             skip_mount_modules: Vec::new(),
@@ -220,18 +220,18 @@ impl RuntimeState {
             tmpfs_xattr_supported,
             mount_stats,
             mode_stats,
-            hymofs,
+            kasumi,
         };
 
         crate::scoped_log!(
             debug,
             "runtime_state:new",
-            "complete: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, hymofs_modules={}, active_mounts={}, tmpfs_xattr_supported={}",
+            "complete: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, kasumi_modules={}, active_mounts={}, tmpfs_xattr_supported={}",
             state.storage_mode,
             state.mount_point.display(),
             state.overlay_modules.len(),
             state.magic_modules.len(),
-            state.hymofs_modules.len(),
+            state.kasumi_modules.len(),
             state.active_mounts.len(),
             state.tmpfs_xattr_supported
         );
@@ -267,12 +267,12 @@ impl RuntimeState {
         crate::scoped_log!(
             debug,
             "runtime_state:build",
-            "start: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, hymofs_modules={}",
+            "start: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, kasumi_modules={}",
             storage_mode.as_str(),
             mount_point.display(),
             result.overlay_module_ids.len(),
             result.magic_module_ids.len(),
-            result.hymofs_module_ids.len()
+            result.kasumi_module_ids.len()
         );
 
         let previous_state = match Self::load() {
@@ -288,17 +288,17 @@ impl RuntimeState {
             }
         };
 
-        let hymofs = hymofs::collect_runtime_info(config);
+        let kasumi = kasumi::collect_runtime_info(config);
         let mut state = Self::new(
             storage_mode.as_str().to_string(),
             mount_point.to_path_buf(),
             result.overlay_module_ids.clone(),
             result.magic_module_ids.clone(),
-            result.hymofs_module_ids.clone(),
+            result.kasumi_module_ids.clone(),
             collect_active_mounts(result),
             result.mount_stats.clone(),
             collect_mode_stats(result),
-            hymofs,
+            kasumi,
         );
         state.mount_error_modules = previous_state.mount_error_modules;
         state.mount_error_reasons = previous_state.mount_error_reasons;
@@ -321,7 +321,7 @@ impl RuntimeState {
         self.overlay_modules
             .iter()
             .chain(self.magic_modules.iter())
-            .chain(self.hymofs_modules.iter())
+            .chain(self.kasumi_modules.iter())
             .map(|s| s.as_str())
             .collect()
     }
@@ -359,15 +359,15 @@ fn collect_mode_stats(result: &ExecutionResult) -> ModuleModeStats {
     ModuleModeStats {
         overlayfs: result.overlay_module_ids.len(),
         magicmount: result.magic_module_ids.len(),
-        hymofs: result.hymofs_module_ids.len(),
+        kasumi: result.kasumi_module_ids.len(),
     }
 }
 
 fn collect_active_mounts(result: &ExecutionResult) -> Vec<String> {
     let mut active_mounts = result.overlay_partitions.clone();
 
-    if result.hymofs_runtime_enabled {
-        active_mounts.push("hymofs".to_string());
+    if result.kasumi_runtime_enabled {
+        active_mounts.push("kasumi".to_string());
     }
 
     active_mounts.sort();
@@ -376,9 +376,9 @@ fn collect_active_mounts(result: &ExecutionResult) -> Vec<String> {
     crate::scoped_log!(
         debug,
         "runtime_state:active_mounts",
-        "complete: overlay_partitions={}, hymofs_runtime_enabled={}, active_mounts={}",
+        "complete: overlay_partitions={}, kasumi_runtime_enabled={}, active_mounts={}",
         result.overlay_partitions.len(),
-        result.hymofs_runtime_enabled,
+        result.kasumi_runtime_enabled,
         active_mounts.len()
     );
 

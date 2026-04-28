@@ -149,8 +149,8 @@ where
     Ok(())
 }
 
-fn effective_mode(mode: &MountMode, use_hymofs: bool) -> MountMode {
-    if matches!(mode, MountMode::Hymofs) && !use_hymofs {
+fn effective_mode(mode: &MountMode, use_kasumi: bool) -> MountMode {
+    if matches!(mode, MountMode::Kasumi) && !use_kasumi {
         MountMode::Ignore
     } else {
         *mode
@@ -166,14 +166,14 @@ fn path_has_descendant_rule(rules: &ModuleRules, relative_path: &Path) -> bool {
 fn should_fallback_overlay_files(
     rules: &ModuleRules,
     relative_path: &Path,
-    use_hymofs: bool,
+    use_kasumi: bool,
     overlay_fallback_enabled: bool,
 ) -> bool {
     overlay_fallback_enabled
         && matches!(
             effective_mode(
                 &rules.get_mode(relative_path.to_string_lossy().as_ref()),
-                use_hymofs
+                use_kasumi
             ),
             MountMode::Overlay
         )
@@ -185,12 +185,12 @@ fn collect_magic_subtree(
     module_dir: &Path,
     relative_path: &Path,
     rules: &ModuleRules,
-    use_hymofs: bool,
+    use_kasumi: bool,
     overlay_fallback_enabled: bool,
 ) -> Result<bool> {
     let mut has_file = false;
     let overlay_file_fallback =
-        should_fallback_overlay_files(rules, relative_path, use_hymofs, overlay_fallback_enabled);
+        should_fallback_overlay_files(rules, relative_path, use_kasumi, overlay_fallback_enabled);
 
     for entry_result in module_dir.read_dir()? {
         let entry = match entry_result {
@@ -213,7 +213,7 @@ fn collect_magic_subtree(
         let next_relative = relative_path.join(&file_name);
         let effective_mode = effective_mode(
             &rules.get_mode(next_relative.to_string_lossy().as_ref()),
-            use_hymofs,
+            use_kasumi,
         );
 
         match entry.file_type() {
@@ -243,7 +243,7 @@ fn collect_magic_subtree(
                     &entry_path,
                     &next_relative,
                     rules,
-                    use_hymofs,
+                    use_kasumi,
                     overlay_fallback_enabled,
                 )? || node.replace;
                 if subtree_has_file {
@@ -293,7 +293,7 @@ pub fn collect_module_files(
     module_dir: &Path,
     managed_partitions: &[String],
     magic_modules: &[Module],
-    use_hymofs: bool,
+    use_kasumi: bool,
     overlay_fallback_enabled: bool,
 ) -> Result<Option<Node>> {
     let mut root = Node::new_root("");
@@ -418,7 +418,7 @@ pub fn collect_module_files(
                     &module_path.join(&p),
                     Path::new(&p),
                     rules,
-                    use_hymofs,
+                    use_kasumi,
                     overlay_fallback_enabled,
                 )?);
                 continue;
@@ -439,7 +439,7 @@ pub fn collect_module_files(
                 &module_path.join(&p),
                 Path::new(&p),
                 rules,
-                use_hymofs,
+                use_kasumi,
                 overlay_fallback_enabled,
             )?);
         }

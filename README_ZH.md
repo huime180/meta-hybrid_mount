@@ -11,7 +11,7 @@ Hybrid Mount 是面向 **KernelSU** 与 **APatch** 的挂载编排元模块。
 
 - **OverlayFS**：兼容优先的分层挂载。
 - **Magic Mount（bind mount）**：直接路径绑定或回退方案。
-- **HymoFS**：用于显式 `hymofs` 路由，以及依赖 HymoFS runtime 的 hide/spoof 能力。
+- **Kasumi**：用于显式 `kasumi` 路由，以及依赖 Kasumi runtime 的 hide/spoof 能力。
 
 整体目标是：启动行为可预测、冲突可观测、策略可配置。
 
@@ -26,7 +26,7 @@ Hybrid Mount 是面向 **KernelSU** 与 **APatch** 的挂载编排元模块。
 - [架构说明](#架构说明)
 - [仓库结构](#仓库结构)
 - [配置说明](#配置说明)
-- [HymoFS](#hymofs)
+- [Kasumi](#kasumi)
 - [策略行为矩阵](#策略行为矩阵)
 - [CLI 命令](#cli-命令)
 - [构建方式](#构建方式)
@@ -48,7 +48,7 @@ Hybrid Mount 当前支持三种后端策略：
 
 - `overlay`：适合可安全合并的模块路径，走 OverlayFS。
 - `magic`：适合直接替换或回退场景，走 Magic Mount bind mount。
-- `hymofs`：模块或路径显式指定为 `hymofs` 时，交给 HymoFS mirror/runtime 处理。
+- `kasumi`：模块或路径显式指定为 `kasumi` 时，交给 Kasumi mirror/runtime 处理。
 
 ## 架构说明
 
@@ -56,7 +56,7 @@ Hybrid Mount 当前支持三种后端策略：
 
 1. 加载配置（文件 + CLI 覆盖）。
 2. 扫描模块目录并构建清单。
-3. 生成执行计划（overlay/magic/hymofs/ignore）。
+3. 生成执行计划（overlay/magic/kasumi/ignore）。
 4. 执行挂载并记录运行状态。
 5. 按需输出冲突与诊断报告。
 
@@ -65,7 +65,7 @@ Hybrid Mount 当前支持三种后端策略：
 - `src/conf`：配置模型、加载器、CLI 处理。
 - `src/core/inventory`：模块扫描与数据建模。
 - `src/core/ops`：计划生成、执行与同步。
-- `src/mount`：OverlayFS、Magic Mount 与 HymoFS 后端。
+- `src/mount`：OverlayFS、Magic Mount 与 Kasumi 后端。
 - `src/sys`：底层文件系统与挂载接口。
 
 ## 仓库结构
@@ -93,7 +93,7 @@ Hybrid Mount 当前支持三种后端策略：
 | `overlay_mode` | `ext4` \| `tmpfs` | `ext4` | Overlay 上层存储模式。 |
 | `disable_umount` | bool | `false` | 跳过 umount（仅调试建议使用）。 |
 | `enable_overlay_fallback` | bool | `false` | 当 overlayfs 不可用时，允许将 overlay 计划模块回退到 Magic Mount。 |
-| `default_mode` | `overlay` \| `magic` \| `hymofs` | `overlay` | 全局默认策略。 |
+| `default_mode` | `overlay` \| `magic` \| `kasumi` | `overlay` | 全局默认策略。 |
 | `rules` | map | `{}` | 按模块 + 路径细粒度策略。 |
 
 ### 示例
@@ -115,20 +115,20 @@ default_mode = "magic"
 "vendor/lib64/libfoo.so" = "ignore"
 ```
 
-## HymoFS
+## Kasumi
 
-`HymoFS` 是 Hybrid Mount 的第三种挂载后端。它由内核/LKM 提供支持，既可用于显式的 `hymofs` 路由，也承担 HymoFS 专属的运行时 hide/spoof 能力。
+`Kasumi` 是 Hybrid Mount 的第三种挂载后端。它由内核/LKM 提供支持，既可用于显式的 `kasumi` 路由，也承担 Kasumi 专属的运行时 hide/spoof 能力。
 
 它在项目里主要承担两类工作：
 
-- `mode = "hymofs"` 的挂载映射：把模块或路径解析到 HymoFS mirror 树中的内容
+- `mode = "kasumi"` 的挂载映射：把模块或路径解析到 Kasumi mirror 树中的内容
 - 额外运行时特性：stealth/hide-xattr、mount hide、`/proc/<pid>/maps` 伪装、`statfs` 伪装、UID 隐藏、uname/cmdline 伪装，以及按目标生效的 kstat 伪装规则
 
 ### 什么时候会真正启用运行时
 
-`hymofs.enabled = true` 只是允许使用 HymoFS。Hybrid Mount 只有在满足下面任一条件时，才会真正把 HymoFS runtime 打开：
+`kasumi.enabled = true` 只是允许使用 Kasumi。Hybrid Mount 只有在满足下面任一条件时，才会真正把 Kasumi runtime 打开：
 
-- 生成出来的挂载计划中存在至少一个 HymoFS 模块或路径
+- 生成出来的挂载计划中存在至少一个 Kasumi 模块或路径
 - 配置了任一辅助特性：`enable_hidexattr`、`enable_mount_hide`、`enable_maps_spoof`、`enable_statfs_spoof`、`hide_uids`、`cmdline_value`、`uname*`、`maps_rules`、`kstat_rules`，或持久化的 user hide 规则
 
 几个和实际行为强相关的细节：
@@ -141,58 +141,58 @@ default_mode = "magic"
 
 | 字段 | 作用 |
 | --- | --- |
-| `hymofs.enabled` | HymoFS 集成总开关。 |
-| `hymofs.lkm_autoload` | 启动时是否尝试自动加载 HymoFS LKM。 |
-| `hymofs.lkm_dir` / `hymofs.lkm_kmi_override` | LKM 搜索目录与可选 KMI 覆盖。 |
-| `hymofs.mirror_path` | HymoFS 规则使用的 mirror 根目录，默认 `/dev/hymo_mirror`。 |
-| `hymofs.enable_kernel_debug` | 打开内核侧 debug 输出。 |
-| `hymofs.enable_stealth` | 显式启用 stealth。 |
-| `hymofs.enable_hidexattr` | 兼容模式总开关，会联动多项 hide/spoof 能力。 |
-| `hymofs.enable_mount_hide` / `hymofs.mount_hide.path_pattern` | 全局或按路径模式启用 mount hide。 |
-| `hymofs.enable_maps_spoof` / `hymofs.maps_rules` | 启用 maps spoof，并安装 inode/device 映射规则。 |
-| `hymofs.enable_statfs_spoof` / `hymofs.statfs_spoof.*` | 启用通用或按路径生效的 `statfs` 伪装。 |
-| `hymofs.hide_uids` | 配置需要隐藏的 UID 集合。 |
-| `hymofs.uname.*` | 结构化 uname 伪装配置。 |
-| `hymofs.cmdline_value` | 替换内核 cmdline 内容。 |
-| `hymofs.kstat_rules` | 按目标应用的 stat 元数据伪装规则。 |
+| `kasumi.enabled` | Kasumi 集成总开关。 |
+| `kasumi.lkm_autoload` | 启动时是否尝试自动加载 Kasumi LKM。 |
+| `kasumi.lkm_dir` / `kasumi.lkm_kmi_override` | LKM 搜索目录与可选 KMI 覆盖。 |
+| `kasumi.mirror_path` | Kasumi 规则使用的 mirror 根目录，默认 `/dev/kasumi_mirror`。 |
+| `kasumi.enable_kernel_debug` | 打开内核侧 debug 输出。 |
+| `kasumi.enable_stealth` | 显式启用 stealth。 |
+| `kasumi.enable_hidexattr` | 兼容模式总开关，会联动多项 hide/spoof 能力。 |
+| `kasumi.enable_mount_hide` / `kasumi.mount_hide.path_pattern` | 全局或按路径模式启用 mount hide。 |
+| `kasumi.enable_maps_spoof` / `kasumi.maps_rules` | 启用 maps spoof，并安装 inode/device 映射规则。 |
+| `kasumi.enable_statfs_spoof` / `kasumi.statfs_spoof.*` | 启用通用或按路径生效的 `statfs` 伪装。 |
+| `kasumi.hide_uids` | 配置需要隐藏的 UID 集合。 |
+| `kasumi.uname.*` | 结构化 uname 伪装配置。 |
+| `kasumi.cmdline_value` | 替换内核 cmdline 内容。 |
+| `kasumi.kstat_rules` | 按目标应用的 stat 元数据伪装规则。 |
 
 ### 示例
 
 ```toml
-[hymofs]
+[kasumi]
 enabled = true
 lkm_autoload = true
-mirror_path = "/dev/hymo_mirror"
+mirror_path = "/dev/kasumi_mirror"
 enable_mount_hide = true
 
 [rules.my_module]
-default_mode = "hymofs"
+default_mode = "kasumi"
 
 [rules.my_module.paths]
-"system/bin/su" = "hymofs"
+"system/bin/su" = "kasumi"
 ```
 
 ### 常用命令
 
 ```bash
 # 查看运行时/LKM 状态
-hybrid-mount hymofs status
-hybrid-mount hymofs version
-hybrid-mount hymofs features
+hybrid-mount kasumi status
+hybrid-mount kasumi version
+hybrid-mount kasumi features
 hybrid-mount lkm status
 
 # 配置并实时同步常见特性
-hybrid-mount hymofs enable
-hybrid-mount hymofs disable
-hybrid-mount hymofs mount-hide enable --path-pattern /dev/hymo_mirror
-hybrid-mount hymofs statfs-spoof enable --path /system --f-type 0x794c7630
-hybrid-mount hymofs maps add --target-ino 1 --target-dev 2 --spoofed-ino 3 --spoofed-dev 4 --path /dev/hymo_mirror/system/bin/sh
-hybrid-mount hymofs kstat upsert --target-ino 11 --target-path /system/bin/app_process64 --spoofed-ino 22 --spoofed-dev 33
+hybrid-mount kasumi enable
+hybrid-mount kasumi disable
+hybrid-mount kasumi mount-hide enable --path-pattern /dev/kasumi_mirror
+hybrid-mount kasumi statfs-spoof enable --path /system --f-type 0x794c7630
+hybrid-mount kasumi maps add --target-ino 1 --target-dev 2 --spoofed-ino 3 --spoofed-dev 4 --path /dev/kasumi_mirror/system/bin/sh
+hybrid-mount kasumi kstat upsert --target-ino 11 --target-path /system/bin/app_process64 --spoofed-ino 22 --spoofed-dev 33
 ```
 
 运维注意：
 
-- `hymofs kstat clear-config` 只会移除持久化配置；已经下发到内核侧的 kstat 规则，通常仍需要重载 HymoFS LKM 或重建整套 runtime 才会完全清掉。
+- `kasumi kstat clear-config` 只会移除持久化配置；已经下发到内核侧的 kstat 规则，通常仍需要重载 Kasumi LKM 或重建整套 runtime 才会完全清掉。
 
 ## 策略行为矩阵
 
@@ -204,8 +204,8 @@ hybrid-mount hymofs kstat upsert --target-ino 11 --target-path /system/bin/app_p
 | `overlay` | OverlayFS 不可用 | `false` | 跳过挂载，并在计划/执行结果中标记失败项。 |
 | `overlay` | OverlayFS 不可用 | `true` | 回退为 Magic Mount（bind mount）重试。 |
 | `magic` | 不适用 | 任意 | 直接使用 Magic Mount。 |
-| `hymofs` | HymoFS 可用 | 任意 | 直接使用 HymoFS 挂载。 |
-| `hymofs` | HymoFS 不可用或未启用 | 任意 | 跳过该路径/模块的 HymoFS 映射。 |
+| `kasumi` | Kasumi 可用 | 任意 | 直接使用 Kasumi 挂载。 |
+| `kasumi` | Kasumi 不可用或未启用 | 任意 | 跳过该路径/模块的 Kasumi 映射。 |
 | `ignore` | 不适用 | 任意 | 不挂载该路径。 |
 
 ### 规则优先级
@@ -269,8 +269,8 @@ cargo run -p xtask -- build --release --skip-webui
 # 本地 arm64 调试包
 ./scripts/build-local.sh
 
-# 打入预编译的 HymoFS LKM 资产
-./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
+# 打入预编译的 Kasumi LKM 资产
+./scripts/build-local.sh --release --kasumi-lkm-dir /path/to/kasumi-lkm
 ```
 
 如果要产出可直接给 APatch 使用的发布包，请在执行 `xtask` 前先用 `HYBRID_MOUNT_KPM_DIR` 指向 `Hybrid-Mount/nuke-kpm` 检出目录，再导出 `HYBRID_MOUNT_KP_DIR`（或 `KP_DIR`）以及 Android NDK 路径。若希望强制重编 KPM，而不是复用已有产物，可再设置 `HYBRID_MOUNT_BUILD_KPM=1`。

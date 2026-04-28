@@ -11,7 +11,7 @@ It merges module files into Android partitions with three mount modes:
 
 - **OverlayFS** for compatibility-first layered mounts.
 - **Magic Mount (bind mount)** for direct path binding or fallback.
-- **HymoFS** for explicit HymoFS routing and runtime-backed hide/spoof features.
+- **Kasumi** for explicit Kasumi routing and runtime-backed hide/spoof features.
 
 The runtime is designed for predictable boot behavior, conflict visibility, and policy-level control.
 
@@ -26,7 +26,7 @@ The runtime is designed for predictable boot behavior, conflict visibility, and 
 - [Architecture](#architecture)
 - [Repository Layout](#repository-layout)
 - [Configuration](#configuration)
-- [HymoFS](#hymofs)
+- [Kasumi](#kasumi)
 - [Policy Behavior Matrix](#policy-behavior-matrix)
 - [CLI](#cli)
 - [Build](#build)
@@ -48,7 +48,7 @@ Hybrid Mount currently supports three backend strategies:
 
 - `overlay`: use OverlayFS for module paths that can be merged safely.
 - `magic`: use Magic Mount bind mounts for direct per-path replacement or fallback.
-- `hymofs`: route module paths through the HymoFS mirror/runtime when the module or path explicitly requires it.
+- `kasumi`: route module paths through the Kasumi mirror/runtime when the module or path explicitly requires it.
 
 ## Architecture
 
@@ -56,7 +56,7 @@ At startup, `hybrid-mount` follows this pipeline:
 
 1. Load config (file + CLI override).
 2. Scan module tree and inventory mountable entries.
-3. Generate an execution plan (overlay/magic/hymofs/ignore).
+3. Generate an execution plan (overlay/magic/kasumi/ignore).
 4. Apply mounts and persist runtime state.
 5. Emit diagnostics/conflict reports when requested.
 
@@ -65,7 +65,7 @@ Key implementation modules:
 - `src/conf`: config schema, loader, CLI handlers.
 - `src/core/inventory`: module scanning and inventory modeling.
 - `src/core/ops`: planning, execution, synchronization.
-- `src/mount`: OverlayFS, Magic Mount, and HymoFS backends.
+- `src/mount`: OverlayFS, Magic Mount, and Kasumi backends.
 - `src/sys`: filesystem/mount helpers and low-level integration.
 
 ## Repository Layout
@@ -93,7 +93,7 @@ Default path: `/data/adb/hybrid-mount/config.toml`.
 | `overlay_mode` | `ext4` \| `tmpfs` | `ext4` | Overlay upper/work backing mode. |
 | `disable_umount` | bool | `false` | Skip umount operations (debug-only). |
 | `enable_overlay_fallback` | bool | `false` | When overlayfs is unavailable, allow falling back to Magic Mount for planned overlay modules. |
-| `default_mode` | `overlay` \| `magic` \| `hymofs` | `overlay` | Default policy for module paths. |
+| `default_mode` | `overlay` \| `magic` \| `kasumi` | `overlay` | Default policy for module paths. |
 | `rules` | map | `{}` | Per-module path-level mount policy. |
 
 ### Example
@@ -115,20 +115,20 @@ default_mode = "magic"
 "vendor/lib64/libfoo.so" = "ignore"
 ```
 
-## HymoFS
+## Kasumi
 
-`HymoFS` is the third mount backend in Hybrid Mount. It is kernel/LKM-backed and is used when a module/path is explicitly routed to `hymofs`, or when HymoFS-only runtime features are required.
+`Kasumi` is the third mount backend in Hybrid Mount. It is kernel/LKM-backed and is used when a module/path is explicitly routed to `kasumi`, or when Kasumi-only runtime features are required.
 
 It currently covers two categories of work:
 
-- `mode = "hymofs"` mount mapping for modules or paths that should resolve from the HymoFS mirror tree.
+- `mode = "kasumi"` mount mapping for modules or paths that should resolve from the Kasumi mirror tree.
 - Auxiliary runtime features such as stealth/hide-xattr behavior, mount hiding, `/proc/<pid>/maps` spoofing, `statfs` spoofing, UID hiding, uname/cmdline spoofing, and per-file kstat spoof rules.
 
 ### When runtime turns on
 
-Setting `hymofs.enabled = true` only makes the backend available. Hybrid Mount actually enables the HymoFS runtime when at least one of these is true:
+Setting `kasumi.enabled = true` only makes the backend available. Hybrid Mount actually enables the Kasumi runtime when at least one of these is true:
 
-- the generated mount plan contains at least one HymoFS-managed module/path
+- the generated mount plan contains at least one Kasumi-managed module/path
 - an auxiliary feature is configured (`enable_hidexattr`, `enable_mount_hide`, `enable_maps_spoof`, `enable_statfs_spoof`, `hide_uids`, `cmdline_value`, `uname*`, `maps_rules`, `kstat_rules`, or persisted user hide rules)
 
 Behavior details that matter in practice:
@@ -141,58 +141,58 @@ Behavior details that matter in practice:
 
 | Key | Purpose |
 | --- | --- |
-| `hymofs.enabled` | Master switch for HymoFS integration. |
-| `hymofs.lkm_autoload` | Try to auto-load the HymoFS LKM during startup. |
-| `hymofs.lkm_dir` / `hymofs.lkm_kmi_override` | LKM search directory and optional KMI override. |
-| `hymofs.mirror_path` | Runtime mirror root used by HymoFS rules, default `/dev/hymo_mirror`. |
-| `hymofs.enable_kernel_debug` | Toggle kernel-side debug output. |
-| `hymofs.enable_stealth` | Explicit stealth mode toggle. |
-| `hymofs.enable_hidexattr` | Compatibility umbrella for stealth + hide/spoof helpers. |
-| `hymofs.enable_mount_hide` / `hymofs.mount_hide.path_pattern` | Hide mounts globally or with a path pattern. |
-| `hymofs.enable_maps_spoof` / `hymofs.maps_rules` | Enable maps spoofing and install inode/device rewrite rules. |
-| `hymofs.enable_statfs_spoof` / `hymofs.statfs_spoof.*` | Enable generic or path-scoped `statfs` spoofing. |
-| `hymofs.hide_uids` | Hide selected UIDs from HymoFS-aware queries. |
-| `hymofs.uname.*` | Structured uname spoof fields. |
-| `hymofs.cmdline_value` | Replacement kernel cmdline payload. |
-| `hymofs.kstat_rules` | Per-target stat metadata spoof rules. |
+| `kasumi.enabled` | Master switch for Kasumi integration. |
+| `kasumi.lkm_autoload` | Try to auto-load the Kasumi LKM during startup. |
+| `kasumi.lkm_dir` / `kasumi.lkm_kmi_override` | LKM search directory and optional KMI override. |
+| `kasumi.mirror_path` | Runtime mirror root used by Kasumi rules, default `/dev/kasumi_mirror`. |
+| `kasumi.enable_kernel_debug` | Toggle kernel-side debug output. |
+| `kasumi.enable_stealth` | Explicit stealth mode toggle. |
+| `kasumi.enable_hidexattr` | Compatibility umbrella for stealth + hide/spoof helpers. |
+| `kasumi.enable_mount_hide` / `kasumi.mount_hide.path_pattern` | Hide mounts globally or with a path pattern. |
+| `kasumi.enable_maps_spoof` / `kasumi.maps_rules` | Enable maps spoofing and install inode/device rewrite rules. |
+| `kasumi.enable_statfs_spoof` / `kasumi.statfs_spoof.*` | Enable generic or path-scoped `statfs` spoofing. |
+| `kasumi.hide_uids` | Hide selected UIDs from Kasumi-aware queries. |
+| `kasumi.uname.*` | Structured uname spoof fields. |
+| `kasumi.cmdline_value` | Replacement kernel cmdline payload. |
+| `kasumi.kstat_rules` | Per-target stat metadata spoof rules. |
 
 ### Example
 
 ```toml
-[hymofs]
+[kasumi]
 enabled = true
 lkm_autoload = true
-mirror_path = "/dev/hymo_mirror"
+mirror_path = "/dev/kasumi_mirror"
 enable_mount_hide = true
 
 [rules.my_module]
-default_mode = "hymofs"
+default_mode = "kasumi"
 
 [rules.my_module.paths]
-"system/bin/su" = "hymofs"
+"system/bin/su" = "kasumi"
 ```
 
 ### Useful commands
 
 ```bash
 # runtime/LKM status
-hybrid-mount hymofs status
-hybrid-mount hymofs version
-hybrid-mount hymofs features
+hybrid-mount kasumi status
+hybrid-mount kasumi version
+hybrid-mount kasumi features
 hybrid-mount lkm status
 
 # enable/disable runtime-backed features
-hybrid-mount hymofs enable
-hybrid-mount hymofs disable
-hybrid-mount hymofs mount-hide enable --path-pattern /dev/hymo_mirror
-hybrid-mount hymofs statfs-spoof enable --path /system --f-type 0x794c7630
-hybrid-mount hymofs maps add --target-ino 1 --target-dev 2 --spoofed-ino 3 --spoofed-dev 4 --path /dev/hymo_mirror/system/bin/sh
-hybrid-mount hymofs kstat upsert --target-ino 11 --target-path /system/bin/app_process64 --spoofed-ino 22 --spoofed-dev 33
+hybrid-mount kasumi enable
+hybrid-mount kasumi disable
+hybrid-mount kasumi mount-hide enable --path-pattern /dev/kasumi_mirror
+hybrid-mount kasumi statfs-spoof enable --path /system --f-type 0x794c7630
+hybrid-mount kasumi maps add --target-ino 1 --target-dev 2 --spoofed-ino 3 --spoofed-dev 4 --path /dev/kasumi_mirror/system/bin/sh
+hybrid-mount kasumi kstat upsert --target-ino 11 --target-path /system/bin/app_process64 --spoofed-ino 22 --spoofed-dev 33
 ```
 
 Operational caveat:
 
-- `hymofs kstat clear-config` only removes persisted config. Existing kernel kstat spoof rules may remain until the HymoFS LKM is reloaded or the whole runtime is rebuilt.
+- `kasumi kstat clear-config` only removes persisted config. Existing kernel kstat spoof rules may remain until the Kasumi LKM is reloaded or the whole runtime is rebuilt.
 
 ## Policy Behavior Matrix
 
@@ -204,8 +204,8 @@ This matrix clarifies what happens under each policy and runtime condition:
 | `overlay` | OverlayFS unavailable | `false` | Skip mount and report as failed planning/execution item. |
 | `overlay` | OverlayFS unavailable | `true` | Retry as Magic Mount (bind mount). |
 | `magic` | n/a | any | Mount with Magic Mount directly. |
-| `hymofs` | HymoFS available | any | Mount with HymoFS directly. |
-| `hymofs` | HymoFS unavailable or disabled | any | Skip HymoFS mapping for this path/module. |
+| `kasumi` | Kasumi available | any | Mount with Kasumi directly. |
+| `kasumi` | Kasumi unavailable or disabled | any | Skip Kasumi mapping for this path/module. |
 | `ignore` | n/a | any | Do not mount this path. |
 
 ### Rule precedence
@@ -269,8 +269,8 @@ cargo run -p xtask -- build --release --skip-webui
 # local arm64 debug package
 ./scripts/build-local.sh
 
-# local package with prebuilt HymoFS LKM assets
-./scripts/build-local.sh --release --hymofs-lkm-dir /path/to/hymofs-lkm
+# local package with prebuilt Kasumi LKM assets
+./scripts/build-local.sh --release --kasumi-lkm-dir /path/to/kasumi-lkm
 ```
 
 For APatch-ready release packages, export `HYBRID_MOUNT_KPM_DIR` to point at the `Hybrid-Mount/nuke-kpm` checkout, plus `HYBRID_MOUNT_KP_DIR` (or `KP_DIR`) and an Android NDK path before invoking `xtask`. Set `HYBRID_MOUNT_BUILD_KPM=1` if you want to force a KPM rebuild instead of reusing an existing artifact.

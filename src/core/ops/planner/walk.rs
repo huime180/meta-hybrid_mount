@@ -31,18 +31,18 @@ struct ProcessingItem {
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct BackendPresence {
     pub(super) magic: bool,
-    pub(super) hymofs: bool,
+    pub(super) kasumi: bool,
 }
 
 impl BackendPresence {
     fn merge(&mut self, other: Self) {
         self.magic |= other.magic;
-        self.hymofs |= other.hymofs;
+        self.kasumi |= other.kasumi;
     }
 }
 
 pub(super) struct PlannerContext {
-    use_hymofs: bool,
+    use_kasumi: bool,
     overlay_fallback_enabled: bool,
     target_cache: HashMap<PathBuf, PathBuf>,
     overlay_groups: BTreeMap<PathBuf, (String, Vec<PathBuf>)>,
@@ -52,11 +52,11 @@ pub(super) struct PlannerContext {
 impl PlannerContext {
     pub(super) fn new(
         config: &config::Config,
-        use_hymofs: bool,
+        use_kasumi: bool,
         managed_partitions: HashSet<String>,
     ) -> Self {
         Self {
-            use_hymofs,
+            use_kasumi,
             overlay_fallback_enabled: config.enable_overlay_fallback,
             target_cache: HashMap::new(),
             overlay_groups: BTreeMap::new(),
@@ -120,7 +120,7 @@ impl PlannerContext {
             let requested_mode = module
                 .rules
                 .get_mode(relative_path.to_string_lossy().as_ref());
-            let effective_mode = effective_mount_mode(&requested_mode, self.use_hymofs);
+            let effective_mode = effective_mount_mode(&requested_mode, self.use_kasumi);
             log_mode_decision(module, &relative_path, &requested_mode, &effective_mode);
 
             let has_descendant_rules =
@@ -195,10 +195,10 @@ impl PlannerContext {
             {
                 presence.magic = true;
             }
-            if matches!(effective_mode, MountMode::Hymofs)
+            if matches!(effective_mode, MountMode::Kasumi)
                 && (direct_non_dir_entries || !child_dirs.is_empty())
             {
-                presence.hymofs = true;
+                presence.kasumi = true;
             }
 
             if matches!(effective_mode, MountMode::Overlay)
@@ -221,7 +221,7 @@ impl PlannerContext {
 
             if !has_descendant_rules {
                 match effective_mode {
-                    MountMode::Magic | MountMode::Ignore | MountMode::Hymofs => continue,
+                    MountMode::Magic | MountMode::Ignore | MountMode::Kasumi => continue,
                     MountMode::Overlay => {
                         if !system_target.exists() {
                             crate::scoped_log!(

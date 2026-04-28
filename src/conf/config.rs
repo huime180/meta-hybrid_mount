@@ -12,7 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use crate::{
-    conf::schema::{Config, OverlayMode},
-    domain::ModuleRules,
-};
+pub use crate::conf::schema::{Config, OverlayMode};

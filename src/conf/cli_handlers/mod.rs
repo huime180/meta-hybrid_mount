@@ -15,8 +15,8 @@
 mod api;
 mod basic;
 mod hide;
-mod hymofs;
+mod kasumi;
 mod lkm;
 mod shared;
 
-pub use self::{api::*, basic::*, hide::*, hymofs::*, lkm::*};
+pub use self::{api::*, basic::*, hide::*, kasumi::*, lkm::*};

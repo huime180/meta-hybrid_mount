@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod hymofs;
+pub mod kasumi;
 pub mod magic_mount;
 pub mod node;
 pub mod overlayfs;

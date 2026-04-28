@@ -17,9 +17,8 @@ use anyhow::Result;
 use crate::{
     conf::{
         cli::{
-            ApiCommands, Cli, Commands, HideCommands, HymofsCmdlineCommands, HymofsCommands,
-            HymofsHideUidsCommands, HymofsKstatCommands, HymofsMapsCommands, HymofsRuleCommands,
-            HymofsUnameCommands, LkmCommands,
+            ApiCommands, Cli, Commands, HideCommands, KasumiCommands, KasumiRuleCommands,
+            LkmCommands,
         },
         cli_handlers,
     },
@@ -44,20 +43,8 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
 
     match command {
         Commands::GenConfig { output, force } => cli_handlers::handle_gen_config(output, *force),
-        Commands::ShowConfig => cli_handlers::handle_show_config(cli),
-        Commands::SaveConfig { payload } => cli_handlers::handle_save_config(cli, payload),
-        Commands::SaveFullConfig { payload } => cli_handlers::handle_save_full_config(cli, payload),
-        Commands::SaveModuleRules { module, payload } => {
-            cli_handlers::handle_save_module_rules(cli, module, payload)
-        }
-        Commands::SaveAllModuleRules { payload } => {
-            cli_handlers::handle_save_all_module_rules(cli, payload)
-        }
-        Commands::Modules => cli_handlers::handle_modules(cli),
-        Commands::State => cli_handlers::handle_state(),
         Commands::Logs { lines } => cli_handlers::handle_logs(*lines),
         Commands::Api { command } => run_api_command(|| match command {
-            ApiCommands::System => cli_handlers::handle_api_system(cli),
             ApiCommands::Storage => cli_handlers::handle_api_storage(),
             ApiCommands::MountStats => cli_handlers::handle_api_mount_stats(),
             ApiCommands::MountTopology => cli_handlers::handle_api_mount_topology(cli),
@@ -70,11 +57,6 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
             LkmCommands::Load => cli_handlers::handle_lkm_load(cli),
             LkmCommands::Unload => cli_handlers::handle_lkm_unload(cli),
             LkmCommands::Status => cli_handlers::handle_lkm_status(cli),
-            LkmCommands::SetAutoload { state } => {
-                cli_handlers::handle_lkm_set_autoload(cli, state.enabled())
-            }
-            LkmCommands::SetKmi { kmi } => cli_handlers::handle_lkm_set_kmi(cli, kmi),
-            LkmCommands::ClearKmi => cli_handlers::handle_lkm_clear_kmi(cli),
         },
         Commands::Hide { command } => match command {
             HideCommands::List => cli_handlers::handle_hide_list(),
@@ -82,159 +64,39 @@ pub fn run(cli: &Cli, command: &Commands) -> Result<()> {
             HideCommands::Remove { path } => cli_handlers::handle_hide_remove(path),
             HideCommands::Apply => cli_handlers::handle_hide_apply(cli),
         },
-        Commands::Hymofs { command } => match command {
-            HymofsCommands::Status => cli_handlers::handle_hymofs_status(cli),
-            HymofsCommands::List => cli_handlers::handle_hymofs_list(cli),
-            HymofsCommands::Version => cli_handlers::handle_hymofs_version(cli),
-            HymofsCommands::Features => cli_handlers::handle_hymofs_features(),
-            HymofsCommands::Hooks => cli_handlers::handle_hymofs_hooks(),
-            HymofsCommands::Clear => cli_handlers::handle_hymofs_clear(),
-            HymofsCommands::ReleaseConnection => cli_handlers::handle_hymofs_release_connection(),
-            HymofsCommands::InvalidateCache => cli_handlers::handle_hymofs_invalidate_cache(),
-            HymofsCommands::FixMounts => cli_handlers::handle_hymofs_fix_mounts(),
-            HymofsCommands::Enable => cli_handlers::handle_hymofs_set_enabled(cli, true),
-            HymofsCommands::Disable => cli_handlers::handle_hymofs_set_enabled(cli, false),
-            HymofsCommands::Hidexattr { state } => {
-                cli_handlers::handle_hymofs_set_hidexattr(cli, state.enabled())
-            }
-            HymofsCommands::SetMirror { path } => cli_handlers::handle_hymofs_set_mirror(cli, path),
-            HymofsCommands::Debug { state } => {
-                cli_handlers::handle_hymofs_set_debug(cli, state.enabled())
-            }
-            HymofsCommands::Stealth { state } => {
-                cli_handlers::handle_hymofs_set_stealth(cli, state.enabled())
-            }
-            HymofsCommands::MountHide {
-                state,
-                path_pattern,
-            } => cli_handlers::handle_hymofs_set_mount_hide(
-                cli,
-                state.enabled(),
-                path_pattern.as_deref(),
-            ),
-            HymofsCommands::MapsSpoof { state } => {
-                cli_handlers::handle_hymofs_set_maps_spoof(cli, state.enabled())
-            }
-            HymofsCommands::StatfsSpoof {
-                state,
-                path,
-                f_type,
-            } => cli_handlers::handle_hymofs_set_statfs_spoof(
-                cli,
-                state.enabled(),
-                path.as_deref(),
-                *f_type,
-            ),
-            HymofsCommands::Uname { command } => match command {
-                HymofsUnameCommands::Set {
-                    sysname,
-                    nodename,
-                    release,
-                    version,
-                    machine,
-                    domainname,
-                } => cli_handlers::handle_hymofs_set_uname(
-                    cli,
-                    sysname.as_deref(),
-                    nodename.as_deref(),
-                    release.as_deref(),
-                    version.as_deref(),
-                    machine.as_deref(),
-                    domainname.as_deref(),
-                ),
-                HymofsUnameCommands::Clear => cli_handlers::handle_hymofs_clear_uname(cli),
-            },
-            HymofsCommands::Cmdline { command } => match command {
-                HymofsCmdlineCommands::Set { value } => {
-                    cli_handlers::handle_hymofs_set_cmdline(cli, value)
-                }
-                HymofsCmdlineCommands::Clear => cli_handlers::handle_hymofs_clear_cmdline(cli),
-            },
-            HymofsCommands::HideUids { command } => match command {
-                HymofsHideUidsCommands::Set { uids } => {
-                    cli_handlers::handle_hymofs_set_hide_uids(cli, uids)
-                }
-                HymofsHideUidsCommands::Clear => cli_handlers::handle_hymofs_clear_hide_uids(cli),
-            },
-            HymofsCommands::Maps { command } => match command {
-                HymofsMapsCommands::Add {
-                    target_ino,
-                    target_dev,
-                    spoofed_ino,
-                    spoofed_dev,
-                    path,
-                } => cli_handlers::handle_hymofs_add_maps_rule(
-                    cli,
-                    *target_ino,
-                    *target_dev,
-                    *spoofed_ino,
-                    *spoofed_dev,
-                    path,
-                ),
-                HymofsMapsCommands::Clear => cli_handlers::handle_hymofs_clear_maps_rules(cli),
-            },
-            HymofsCommands::Kstat { command } => match command {
-                HymofsKstatCommands::Upsert {
-                    target_ino,
-                    target_path,
-                    spoofed_ino,
-                    spoofed_dev,
-                    spoofed_nlink,
-                    spoofed_size,
-                    spoofed_atime_sec,
-                    spoofed_atime_nsec,
-                    spoofed_mtime_sec,
-                    spoofed_mtime_nsec,
-                    spoofed_ctime_sec,
-                    spoofed_ctime_nsec,
-                    spoofed_blksize,
-                    spoofed_blocks,
-                    is_static,
-                } => cli_handlers::handle_hymofs_upsert_kstat_rule(
-                    cli,
-                    *target_ino,
-                    target_path,
-                    *spoofed_ino,
-                    *spoofed_dev,
-                    *spoofed_nlink,
-                    *spoofed_size,
-                    *spoofed_atime_sec,
-                    *spoofed_atime_nsec,
-                    *spoofed_mtime_sec,
-                    *spoofed_mtime_nsec,
-                    *spoofed_ctime_sec,
-                    *spoofed_ctime_nsec,
-                    *spoofed_blksize,
-                    *spoofed_blocks,
-                    *is_static,
-                ),
-                HymofsKstatCommands::ClearConfig => {
-                    cli_handlers::handle_hymofs_clear_kstat_rules_config(cli)
-                }
-            },
-            HymofsCommands::Rule { command } => match command {
-                HymofsRuleCommands::Add {
+        Commands::Kasumi { command } => match command {
+            KasumiCommands::Status => cli_handlers::handle_kasumi_status(cli),
+            KasumiCommands::List => cli_handlers::handle_kasumi_list(cli),
+            KasumiCommands::Version => cli_handlers::handle_kasumi_version(cli),
+            KasumiCommands::Features => cli_handlers::handle_kasumi_features(),
+            KasumiCommands::Hooks => cli_handlers::handle_kasumi_hooks(),
+            KasumiCommands::Clear => cli_handlers::handle_kasumi_clear(),
+            KasumiCommands::ReleaseConnection => cli_handlers::handle_kasumi_release_connection(),
+            KasumiCommands::InvalidateCache => cli_handlers::handle_kasumi_invalidate_cache(),
+            KasumiCommands::FixMounts => cli_handlers::handle_kasumi_fix_mounts(),
+            KasumiCommands::Rule { command } => match command {
+                KasumiRuleCommands::Add {
                     target,
                     source,
                     file_type,
-                } => cli_handlers::handle_hymofs_rule_add(cli, target, source, *file_type),
-                HymofsRuleCommands::Merge { target, source } => {
-                    cli_handlers::handle_hymofs_rule_merge(cli, target, source)
+                } => cli_handlers::handle_kasumi_rule_add(cli, target, source, *file_type),
+                KasumiRuleCommands::Merge { target, source } => {
+                    cli_handlers::handle_kasumi_rule_merge(cli, target, source)
                 }
-                HymofsRuleCommands::Hide { path } => {
-                    cli_handlers::handle_hymofs_rule_hide(cli, path)
+                KasumiRuleCommands::Hide { path } => {
+                    cli_handlers::handle_kasumi_rule_hide(cli, path)
                 }
-                HymofsRuleCommands::Delete { path } => {
-                    cli_handlers::handle_hymofs_rule_delete(cli, path)
+                KasumiRuleCommands::Delete { path } => {
+                    cli_handlers::handle_kasumi_rule_delete(cli, path)
                 }
-                HymofsRuleCommands::AddDir {
+                KasumiRuleCommands::AddDir {
                     target_base,
                     source_dir,
-                } => cli_handlers::handle_hymofs_rule_add_dir(cli, target_base, source_dir),
-                HymofsRuleCommands::RemoveDir {
+                } => cli_handlers::handle_kasumi_rule_add_dir(cli, target_base, source_dir),
+                KasumiRuleCommands::RemoveDir {
                     target_base,
                     source_dir,
-                } => cli_handlers::handle_hymofs_rule_remove_dir(cli, target_base, source_dir),
+                } => cli_handlers::handle_kasumi_rule_remove_dir(cli, target_base, source_dir),
             },
         },
     }

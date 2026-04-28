@@ -31,7 +31,7 @@ pub enum OverlayMode {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HymoMapsRuleConfig {
+pub struct KasumiMapsRuleConfig {
     #[serde(default)]
     pub target_ino: u64,
     #[serde(default)]
@@ -45,7 +45,7 @@ pub struct HymoMapsRuleConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct HymoKstatRuleConfig {
+pub struct KasumiKstatRuleConfig {
     #[serde(default)]
     pub target_ino: u64,
     #[serde(default)]
@@ -79,7 +79,7 @@ pub struct HymoKstatRuleConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct HymoUnameConfig {
+pub struct KasumiUnameConfig {
     #[serde(default)]
     pub sysname: String,
     #[serde(default)]
@@ -95,7 +95,7 @@ pub struct HymoUnameConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct HymoMountHideConfig {
+pub struct KasumiMountHideConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -103,7 +103,7 @@ pub struct HymoMountHideConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct HymoStatfsSpoofConfig {
+pub struct KasumiStatfsSpoofConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -113,16 +113,16 @@ pub struct HymoStatfsSpoofConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HymoFsConfig {
+pub struct KasumiConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default = "default_true")]
     pub lkm_autoload: bool,
-    #[serde(default = "default_hymofs_lkm_dir")]
+    #[serde(default = "default_kasumi_lkm_dir")]
     pub lkm_dir: PathBuf,
     #[serde(default)]
     pub lkm_kmi_override: String,
-    #[serde(default = "default_hymofs_mirror_path")]
+    #[serde(default = "default_kasumi_mirror_path")]
     pub mirror_path: PathBuf,
     #[serde(default)]
     pub enable_kernel_debug: bool,
@@ -137,39 +137,39 @@ pub struct HymoFsConfig {
     #[serde(default)]
     pub enable_statfs_spoof: bool,
     #[serde(default)]
-    pub mount_hide: HymoMountHideConfig,
+    pub mount_hide: KasumiMountHideConfig,
     #[serde(default)]
-    pub statfs_spoof: HymoStatfsSpoofConfig,
+    pub statfs_spoof: KasumiStatfsSpoofConfig,
     #[serde(default)]
     pub hide_uids: Vec<u32>,
     #[serde(default)]
-    pub uname: HymoUnameConfig,
+    pub uname: KasumiUnameConfig,
     #[serde(default)]
     pub cmdline_value: String,
     #[serde(default)]
-    pub kstat_rules: Vec<HymoKstatRuleConfig>,
+    pub kstat_rules: Vec<KasumiKstatRuleConfig>,
     #[serde(default)]
-    pub maps_rules: Vec<HymoMapsRuleConfig>,
+    pub maps_rules: Vec<KasumiMapsRuleConfig>,
 }
 
-impl Default for HymoFsConfig {
+impl Default for KasumiConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             lkm_autoload: default_true(),
-            lkm_dir: default_hymofs_lkm_dir(),
+            lkm_dir: default_kasumi_lkm_dir(),
             lkm_kmi_override: String::new(),
-            mirror_path: default_hymofs_mirror_path(),
+            mirror_path: default_kasumi_mirror_path(),
             enable_kernel_debug: false,
             enable_stealth: false,
             enable_hidexattr: false,
             enable_mount_hide: false,
             enable_maps_spoof: false,
             enable_statfs_spoof: false,
-            mount_hide: HymoMountHideConfig::default(),
-            statfs_spoof: HymoStatfsSpoofConfig::default(),
+            mount_hide: KasumiMountHideConfig::default(),
+            statfs_spoof: KasumiStatfsSpoofConfig::default(),
             hide_uids: Vec::new(),
-            uname: HymoUnameConfig::default(),
+            uname: KasumiUnameConfig::default(),
             cmdline_value: String::new(),
             kstat_rules: Vec::new(),
             maps_rules: Vec::new(),
@@ -193,8 +193,8 @@ pub struct Config {
     pub enable_overlay_fallback: bool,
     #[serde(default)]
     pub default_mode: DefaultMode,
-    #[serde(default)]
-    pub hymofs: HymoFsConfig,
+    #[serde(default, alias = "hymofs")]
+    pub kasumi: KasumiConfig,
     #[serde(default)]
     pub rules: HashMap<String, ModuleRules>,
 }
@@ -207,12 +207,12 @@ fn default_mountsource() -> String {
     crate::sys::mount::detect_mount_source()
 }
 
-fn default_hymofs_mirror_path() -> PathBuf {
-    PathBuf::from(defs::HYMOFS_MIRROR_DIR)
+fn default_kasumi_mirror_path() -> PathBuf {
+    PathBuf::from(defs::KASUMI_MIRROR_DIR)
 }
 
-fn default_hymofs_lkm_dir() -> PathBuf {
-    PathBuf::from(defs::HYMOFS_LKM_DIR)
+fn default_kasumi_lkm_dir() -> PathBuf {
+    PathBuf::from(defs::KASUMI_LKM_DIR)
 }
 
 fn default_true() -> bool {
@@ -250,29 +250,8 @@ impl Default for Config {
             disable_umount: false,
             enable_overlay_fallback: false,
             default_mode: DefaultMode::default(),
-            hymofs: HymoFsConfig::default(),
+            kasumi: KasumiConfig::default(),
             rules: HashMap::new(),
-        }
-    }
-}
-
-impl Config {
-    pub fn merge_with_cli(
-        &mut self,
-        moduledir: Option<PathBuf>,
-        mountsource: Option<String>,
-        partitions: Vec<String>,
-    ) {
-        if let Some(dir) = moduledir {
-            self.moduledir = dir;
-        }
-
-        if let Some(source) = mountsource {
-            self.mountsource = source;
-        }
-
-        if !partitions.is_empty() {
-            self.partitions = partitions;
         }
     }
 }

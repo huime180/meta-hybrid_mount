@@ -217,7 +217,7 @@ impl MountContext {
 pub struct MagicMountOptions<'a> {
     pub mount_source: &'a str,
     pub managed_partitions: &'a [String],
-    pub use_hymofs: bool,
+    pub use_kasumi: bool,
     pub overlay_fallback_enabled: bool,
 }
 
@@ -562,7 +562,7 @@ where
         module_dir,
         options.managed_partitions,
         magic_modules,
-        options.use_hymofs,
+        options.use_kasumi,
         options.overlay_fallback_enabled,
     )? {
         crate::scoped_log!(debug, "magic", "collected tree: {:?}", root);

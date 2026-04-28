@@ -33,19 +33,20 @@ pub fn finalize(
     crate::scoped_log!(
         info,
         "runtime_finalization",
-        "start: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, hymofs_modules={}",
+        "start: storage_mode={}, mount_point={}, overlay_modules={}, magic_modules={}, kasumi_modules={}",
         storage_mode.as_str(),
         mount_point.display(),
         result.overlay_module_ids.len(),
         result.magic_module_ids.len(),
-        result.hymofs_module_ids.len()
+        result.kasumi_module_ids.len()
     );
 
     module_status::update_description(
         storage_mode,
+        config.kasumi.enabled,
         result.overlay_module_ids.len(),
         result.magic_module_ids.len(),
-        result.hymofs_module_ids.len(),
+        result.kasumi_module_ids.len(),
     );
 
     let state = RuntimeState::build_from_execution(config, storage_mode, mount_point, result);

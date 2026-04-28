@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub mod fs;
-pub mod hymofs;
+pub mod kasumi;
 pub mod lkm;
 pub mod mount;
 pub mod nuke;

@@ -16,8 +16,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use super::shared::{load_effective_config, require_live_hymofs};
-use crate::{conf::cli::Cli, core::user_hide_rules, mount::hymofs as hymofs_mount, sys::hymofs};
+use super::shared::{load_effective_config, require_live_kasumi};
+use crate::{conf::cli::Cli, core::user_hide_rules, mount::kasumi as kasumi_mount, sys::kasumi};
 
 pub fn handle_hide_list() -> Result<()> {
     let rules = user_hide_rules::load_user_hide_rules()?;
@@ -32,8 +32,8 @@ pub fn handle_hide_add(cli: &Cli, path: &Path) -> Result<()> {
     let added = user_hide_rules::add_user_hide_rule(path)?;
     if added {
         let config = load_effective_config(cli)?;
-        if hymofs_mount::can_operate(&config)
-            && let Err(err) = hymofs::hide_path(path)
+        if kasumi_mount::can_operate(&config)
+            && let Err(err) = kasumi::hide_path(path)
         {
             crate::scoped_log!(
                 warn,
@@ -56,7 +56,7 @@ pub fn handle_hide_remove(path: &Path) -> Result<()> {
     let removed = user_hide_rules::remove_user_hide_rule(path)?;
     if removed {
         println!(
-            "User hide rule removed from persistent list: {}. Existing kernel hide state may persist until HymoFS rules are rebuilt.",
+            "User hide rule removed from persistent list: {}. Existing kernel hide state may persist until Kasumi rules are rebuilt.",
             path.display()
         );
     } else {
@@ -67,7 +67,7 @@ pub fn handle_hide_remove(path: &Path) -> Result<()> {
 
 pub fn handle_hide_apply(cli: &Cli) -> Result<()> {
     let config = load_effective_config(cli)?;
-    require_live_hymofs(&config, "apply user hide rules")?;
+    require_live_kasumi(&config, "apply user hide rules")?;
     let (applied, failed) = user_hide_rules::apply_user_hide_rules()?;
     println!("User hide rules applied: {applied} succeeded, {failed} failed.");
     Ok(())

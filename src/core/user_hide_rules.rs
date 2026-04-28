@@ -19,7 +19,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use crate::{defs, sys::hymofs};
+use crate::{defs, sys::kasumi};
 
 fn load_user_hide_rules_from(path: &Path) -> Result<Vec<PathBuf>> {
     if !path.exists() {
@@ -108,7 +108,7 @@ pub fn apply_user_hide_rules_from_paths(rules: &[PathBuf]) -> Result<(usize, usi
     let mut failed = 0usize;
 
     for path in rules {
-        match hymofs::hide_path(path) {
+        match kasumi::hide_path(path) {
             Ok(()) => success += 1,
             Err(err) => {
                 failed += 1;

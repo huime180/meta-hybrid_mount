@@ -22,7 +22,8 @@ pub enum DefaultMode {
     #[default]
     Overlay,
     Magic,
-    Hymofs,
+    #[serde(alias = "hymofs")]
+    Kasumi,
 }
 
 impl DefaultMode {
@@ -30,7 +31,7 @@ impl DefaultMode {
         match self {
             Self::Overlay => MountMode::Overlay,
             Self::Magic => MountMode::Magic,
-            Self::Hymofs => MountMode::Hymofs,
+            Self::Kasumi => MountMode::Kasumi,
         }
     }
 }
@@ -41,7 +42,8 @@ pub enum MountMode {
     #[default]
     Overlay,
     Magic,
-    Hymofs,
+    #[serde(alias = "hymofs")]
+    Kasumi,
     Ignore,
 }
 
@@ -50,16 +52,7 @@ impl MountMode {
         match self {
             Self::Overlay => "overlay",
             Self::Magic => "magic",
-            Self::Hymofs => "hymofs",
-            Self::Ignore => "ignore",
-        }
-    }
-
-    pub fn as_module_mode_label(&self) -> &'static str {
-        match self {
-            Self::Overlay => "auto",
-            Self::Magic => "magic",
-            Self::Hymofs => "hymofs",
+            Self::Kasumi => "kasumi",
             Self::Ignore => "ignore",
         }
     }
@@ -134,10 +127,10 @@ mod tests {
             MountMode::Overlay,
             &[
                 ("system", MountMode::Magic),
-                ("system/app", MountMode::Hymofs),
+                ("system/app", MountMode::Kasumi),
             ],
         );
-        assert_eq!(rules.get_mode("system/app/foo"), MountMode::Hymofs);
+        assert_eq!(rules.get_mode("system/app/foo"), MountMode::Kasumi);
         assert_eq!(rules.get_mode("system/priv-app"), MountMode::Magic);
     }
 
@@ -149,8 +142,8 @@ mod tests {
 
     #[test]
     fn empty_rules_returns_default() {
-        let rules = make_rules(MountMode::Hymofs, &[]);
-        assert_eq!(rules.get_mode("system"), MountMode::Hymofs);
+        let rules = make_rules(MountMode::Kasumi, &[]);
+        assert_eq!(rules.get_mode("system"), MountMode::Kasumi);
     }
 
     #[test]
@@ -159,10 +152,10 @@ mod tests {
             MountMode::Overlay,
             &[
                 ("sys", MountMode::Magic),
-                ("sys", MountMode::Hymofs), // later entry overwrites in HashMap
+                ("sys", MountMode::Kasumi), // later entry overwrites in HashMap
             ],
         );
-        assert_eq!(rules.get_mode("sys"), MountMode::Hymofs);
+        assert_eq!(rules.get_mode("sys"), MountMode::Kasumi);
     }
 
     #[test]

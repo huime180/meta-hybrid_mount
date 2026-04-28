@@ -22,9 +22,10 @@ use crate::{core::storage::StorageMode, defs, sys::fs::atomic_write};
 
 pub fn update_description(
     storage_mode: StorageMode,
+    kasumi_enabled: bool,
     overlay_count: usize,
     magic_count: usize,
-    hymofs_count: usize,
+    kasumi_count: usize,
 ) {
     let prop_path = Path::new(defs::MODULE_PROP_FILE);
 
@@ -32,6 +33,24 @@ pub fn update_description(
         return;
     }
 
+    let desc_text = running_description(
+        storage_mode,
+        kasumi_enabled,
+        overlay_count,
+        magic_count,
+        kasumi_count,
+    );
+
+    set_description(prop_path, &desc_text);
+}
+
+fn running_description(
+    storage_mode: StorageMode,
+    kasumi_enabled: bool,
+    overlay_count: usize,
+    magic_count: usize,
+    kasumi_count: usize,
+) -> String {
     let mode_str = match storage_mode {
         StorageMode::Tmpfs => "Tmpfs",
         StorageMode::Ext4 => "Ext4",
@@ -43,20 +62,18 @@ pub fn update_description(
     };
 
     let mut stats = Vec::new();
-    if hymofs_count > 0 {
-        stats.push(format!("HymoFS: {}", hymofs_count));
+    if kasumi_enabled {
+        stats.push(format!("Kasumi:{}", kasumi_count));
     }
-    stats.push(format!("Overlay: {}", overlay_count));
-    stats.push(format!("Magic: {}", magic_count));
+    stats.push(format!("Overlay:{}", overlay_count));
+    stats.push(format!("Magic:{}", magic_count));
 
     let stats_str = stats.join("  ");
 
-    let desc_text = format!(
+    format!(
         "😋 运行中喵～ ({}) {}  {}",
         mode_str, status_emoji, stats_str
-    );
-
-    set_description(prop_path, &desc_text);
+    )
 }
 
 pub fn update_crash_description(reason: &str) {
@@ -95,5 +112,29 @@ fn set_description(prop_path: &Path, desc_text: &str) {
             prop_path.display(),
             err
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::running_description;
+    use crate::core::storage::StorageMode;
+
+    #[test]
+    fn running_description_keeps_kasumi_zero_count_when_enabled() {
+        let desc = running_description(StorageMode::Tmpfs, true, 2, 3, 0);
+
+        assert!(desc.contains("Kasumi:0"));
+        assert!(desc.contains("Overlay:2"));
+        assert!(desc.contains("Magic:3"));
+    }
+
+    #[test]
+    fn running_description_hides_kasumi_count_when_disabled() {
+        let desc = running_description(StorageMode::Tmpfs, false, 2, 3, 0);
+
+        assert!(!desc.contains("Kasumi:"));
+        assert!(desc.contains("Overlay:2"));
+        assert!(desc.contains("Magic:3"));
     }
 }

@@ -21,12 +21,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-hymofs-lkm:
-    uses: ./.github/workflows/build-hymofs-lkm.yml
+  build-kasumi-lkm:
+    uses: ./.github/workflows/build-kasumi-lkm.yml
     secrets: inherit
 
   release:
-    needs: build-hymofs-lkm
+    needs: build-kasumi-lkm
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -36,7 +36,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          submodules: recursive
 
       - name: Checkout KPM Sources
         uses: actions/checkout@v6
@@ -45,11 +44,11 @@ jobs:
           path: nuke-kpm
           fetch-depth: 1
 
-      - name: Download HymoFS LKM artifacts
+      - name: Download Kasumi LKM artifacts
         uses: actions/download-artifact@v8
         with:
-          path: hymofs_lkm_artifacts
-          pattern: "*-hymofs-lkm"
+          path: kasumi_lkm_artifacts
+          pattern: "*-kasumi-lkm"
           merge-multiple: true
 
       - name: Setup Android NDK
@@ -96,7 +95,7 @@ jobs:
           HYBRID_MOUNT_SIGN_CERT: ${{ secrets.SIGNING_CERT }}
           HYBRID_MOUNT_KPM_DIR: ${{ github.workspace }}/nuke-kpm
           HYBRID_MOUNT_KP_DIR: /tmp/apatch-kpm
-          HYBRID_MOUNT_HYMOFS_LKM_DIR: ${{ github.workspace }}/hymofs_lkm_artifacts
+          HYBRID_MOUNT_KASUMI_LKM_DIR: ${{ github.workspace }}/kasumi_lkm_artifacts
           HYBRID_MOUNT_NOTIFY: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

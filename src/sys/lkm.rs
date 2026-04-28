@@ -32,7 +32,7 @@ use anyhow::{Result, anyhow};
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use crate::{conf::schema::HymoFsConfig, defs, sys::hymofs, utils::KSU};
+use crate::{conf::schema::KasumiConfig, defs, sys::kasumi, utils::KSU};
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct LkmStatus {
@@ -187,7 +187,7 @@ pub fn current_kmi() -> String {
     parse_kmi_from_release(&real_kernel_release())
 }
 
-fn effective_kmi(config: &HymoFsConfig) -> String {
+fn effective_kmi(config: &KasumiConfig) -> String {
     if !config.lkm_kmi_override.trim().is_empty() {
         config.lkm_kmi_override.trim().to_string()
     } else {
@@ -200,9 +200,13 @@ fn candidate_file_names(kmi: &str) -> Vec<String> {
     let suffix = arch_suffix();
 
     if !kmi.is_empty() {
+        candidates.push(format!("{kmi}{suffix}_kasumi_lkm.ko"));
+        candidates.push(format!("{kmi}_kasumi_lkm.ko"));
         candidates.push(format!("{kmi}{suffix}_hymofs_lkm.ko"));
         candidates.push(format!("{kmi}_hymofs_lkm.ko"));
     }
+    candidates.push(format!("{suffix}_kasumi_lkm.ko"));
+    candidates.push("kasumi_lkm.ko".to_string());
     candidates.push(format!("{suffix}_hymofs_lkm.ko"));
     candidates.push("hymofs_lkm.ko".to_string());
 
@@ -215,7 +219,7 @@ fn candidate_name_set(kmi: &str) -> HashSet<String> {
     candidate_file_names(kmi).into_iter().collect()
 }
 
-fn resolve_module_file(config: &HymoFsConfig) -> Option<PathBuf> {
+fn resolve_module_file(config: &KasumiConfig) -> Option<PathBuf> {
     let kmi = effective_kmi(config);
     let candidates = candidate_file_names(&kmi);
     let candidate_names = candidate_name_set(&kmi);
@@ -254,7 +258,11 @@ fn loaded_module_name() -> Option<String> {
     let content = fs::read_to_string("/proc/modules").ok()?;
     content.lines().find_map(|line| {
         let name = line.split_whitespace().next()?;
-        matches!(name, defs::HYMOFS_LKM_MODULE_NAME | "hymofs").then(|| name.to_string())
+        matches!(
+            name,
+            defs::KASUMI_LKM_MODULE_NAME | "kasumi" | "hymofs_lkm" | "hymofs"
+        )
+        .then(|| name.to_string())
     })
 }
 
@@ -262,11 +270,11 @@ pub fn is_loaded() -> bool {
     loaded_module_name().is_some()
 }
 
-pub fn has_module_assets(config: &HymoFsConfig) -> bool {
+pub fn has_module_assets(config: &KasumiConfig) -> bool {
     config.lkm_dir.exists()
 }
 
-pub fn status(config: &HymoFsConfig) -> LkmStatus {
+pub fn status(config: &KasumiConfig) -> LkmStatus {
     LkmStatus {
         loaded: is_loaded(),
         module_name: loaded_module_name(),
@@ -427,23 +435,23 @@ fn unload_module_via_rmmod(module_name: &str) -> Result<()> {
     Err(last_failure.unwrap_or_else(|| anyhow!("rmmod failed for {}", module_name)))
 }
 
-pub fn load(config: &HymoFsConfig) -> Result<()> {
+pub fn load(config: &KasumiConfig) -> Result<()> {
     clear_last_error();
 
     if is_loaded() {
-        hymofs::invalidate_status_cache();
+        kasumi::invalidate_status_cache();
         return Ok(());
     }
 
     let ko_path = resolve_module_file(config).ok_or_else(|| {
         anyhow!(
-            "no matching HymoFS LKM found in {} for kmi '{}'",
+            "no matching Kasumi LKM found in {} for kmi '{}'",
             config.lkm_dir.display(),
             effective_kmi(config)
         )
     })?;
 
-    let params = format!("hymo_syscall_nr={}", hymofs::HYMO_SYSCALL_NR);
+    let params = format!("hymo_syscall_nr={}", kasumi::HYMO_SYSCALL_NR);
     if let Err(primary_err) = load_module_via_finit(&ko_path, &params) {
         if KSU.load(Ordering::Relaxed) {
             crate::scoped_log!(
@@ -464,7 +472,7 @@ pub fn load(config: &HymoFsConfig) -> Result<()> {
         }
     }
 
-    hymofs::invalidate_status_cache();
+    kasumi::invalidate_status_cache();
     crate::scoped_log!(
         info,
         "lkm",
@@ -475,25 +483,25 @@ pub fn load(config: &HymoFsConfig) -> Result<()> {
     Ok(())
 }
 
-pub fn unload(config: &HymoFsConfig) -> Result<()> {
+pub fn unload(config: &KasumiConfig) -> Result<()> {
     clear_last_error();
 
     let Some(module_name) = loaded_module_name() else {
-        hymofs::release_connection();
-        hymofs::invalidate_status_cache();
+        kasumi::release_connection();
+        kasumi::invalidate_status_cache();
         return Ok(());
     };
 
-    let _ = hymofs::set_enabled(false);
-    let _ = hymofs::clear_rules();
-    hymofs::release_connection();
+    let _ = kasumi::set_enabled(false);
+    let _ = kasumi::clear_rules();
+    kasumi::release_connection();
     thread::sleep(Duration::from_millis(120));
 
     let mut last_retry_error = None;
     for _ in 0..5 {
         match unload_module_via_syscall(&module_name) {
             Ok(()) => {
-                hymofs::invalidate_status_cache();
+                kasumi::invalidate_status_cache();
                 crate::scoped_log!(info, "lkm", "unload complete: module={}", module_name);
                 return Ok(());
             }
@@ -529,13 +537,13 @@ pub fn unload(config: &HymoFsConfig) -> Result<()> {
             ));
         })?;
 
-    hymofs::invalidate_status_cache();
+    kasumi::invalidate_status_cache();
     crate::scoped_log!(info, "lkm", "unload complete: module={}", module_name);
     let _ = config;
     Ok(())
 }
 
-pub fn autoload_if_needed(config: &HymoFsConfig) -> Result<bool> {
+pub fn autoload_if_needed(config: &KasumiConfig) -> Result<bool> {
     if !config.enabled || !config.lkm_autoload || is_loaded() || !has_module_assets(config) {
         return Ok(false);
     }

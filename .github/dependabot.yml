@@ -24,12 +24,32 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: "npm"
+    directory: "/webui"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      webui-deps:
+        patterns:
+          - "*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
     target-branch: "dev"
     groups:
-      crates:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/webui"
+    schedule:
+      interval: "monthly"
+    target-branch: "dev"
+    groups:
+      webui-actions:
         patterns:
           - "*"

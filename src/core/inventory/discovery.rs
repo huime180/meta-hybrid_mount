@@ -13,69 +13,20 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::Result;
-use serde::Deserialize;
 
-use crate::{
-    conf::config,
-    core::inventory,
-    domain::{ModuleRules, MountMode},
-};
+use crate::{conf::config, core::inventory, domain::ModuleRules};
 
-#[derive(Deserialize)]
-struct PartialRules {
-    default_mode: Option<MountMode>,
-    paths: Option<HashMap<String, MountMode>>,
-}
-
-fn load_module_rules(module_dir: &Path, module_id: &str, cfg: &config::Config) -> ModuleRules {
+fn load_module_rules(module_id: &str, cfg: &config::Config) -> ModuleRules {
     let mut rules = ModuleRules {
         default_mode: cfg.default_mode.as_mount_mode(),
         ..Default::default()
     };
 
-    let internal_config = module_dir.join("hybrid_rules.json");
-
-    if internal_config.exists() {
-        match fs::read_to_string(&internal_config) {
-            Ok(content) => match serde_json::from_str::<PartialRules>(&content) {
-                Ok(partial) => {
-                    if let Some(mode) = partial.default_mode {
-                        rules.default_mode = mode;
-                    }
-                    if let Some(paths) = partial.paths {
-                        rules.paths = paths;
-                    }
-                }
-                Err(e) => {
-                    crate::scoped_log!(
-                        warn,
-                        "scanner",
-                        "rules parse failed: module={}, error={}",
-                        module_id,
-                        e
-                    )
-                }
-            },
-            Err(e) => crate::scoped_log!(
-                warn,
-                "scanner",
-                "rules read failed: module={}, error={}",
-                module_id,
-                e
-            ),
-        }
-    }
-
-    // Global config acts as admin override: default_mode takes precedence over
-    // the module's own choice (intentional — admin controls the default strategy).
-    // Paths are merged with module-local paths winning on conflict (HashMap::extend
-    // preserves existing keys), so modules can't be forced to handle unexpected paths.
     if let Some(global_rules) = cfg.rules.get(module_id) {
         rules.default_mode = global_rules.default_mode;
         rules.paths.extend(global_rules.paths.clone());
@@ -91,13 +42,7 @@ pub struct Module {
     pub rules: ModuleRules,
 }
 
-#[derive(Clone, Copy)]
-enum ScanMode {
-    ActiveOnly,
-    BlockedOnly,
-}
-
-fn scan_with_mode(source_dir: &Path, cfg: &config::Config, mode: ScanMode) -> Result<Vec<Module>> {
+pub fn scan(source_dir: &Path, cfg: &config::Config) -> Result<Vec<Module>> {
     if !source_dir.exists() {
         return Ok(Vec::new());
     }
@@ -124,62 +69,36 @@ fn scan_with_mode(source_dir: &Path, cfg: &config::Config, mode: ScanMode) -> Re
         }
 
         let block_markers = inventory::mount_block_markers(&path);
-        match (mode, block_markers.is_empty()) {
-            (ScanMode::ActiveOnly, false) => {
-                skipped_blocked += 1;
-                crate::scoped_log!(
-                    debug,
-                    "scanner",
-                    "skip: module={}, reason=block_marker, markers={}",
-                    id,
-                    block_markers.join(",")
-                );
-                continue;
-            }
-            (ScanMode::BlockedOnly, true) => {
-                continue;
-            }
-            _ => {}
+        if !block_markers.is_empty() {
+            skipped_blocked += 1;
+            crate::scoped_log!(
+                debug,
+                "scanner",
+                "skip: module={}, reason=block_marker, markers={}",
+                id,
+                block_markers.join(",")
+            );
+            continue;
         }
 
-        let rules = load_module_rules(&path, &id, cfg);
-
         modules.push(Module {
-            id,
+            id: id.clone(),
             source_path: path,
-            rules,
+            rules: load_module_rules(&id, cfg),
         });
     }
 
-    match mode {
-        ScanMode::ActiveOnly => crate::scoped_log!(
-            info,
-            "scanner",
-            "complete: total_dirs={}, active_modules={}, skipped_reserved={}, skipped_blocked={}",
-            modules.len() + skipped_reserved + skipped_blocked,
-            modules.len(),
-            skipped_reserved,
-            skipped_blocked
-        ),
-        ScanMode::BlockedOnly => crate::scoped_log!(
-            debug,
-            "scanner",
-            "blocked list complete: total_dirs={}, blocked_modules={}, skipped_reserved={}",
-            modules.len() + skipped_reserved,
-            modules.len(),
-            skipped_reserved
-        ),
-    };
+    crate::scoped_log!(
+        info,
+        "scanner",
+        "complete: total_dirs={}, active_modules={}, skipped_reserved={}, skipped_blocked={}",
+        modules.len() + skipped_reserved + skipped_blocked,
+        modules.len(),
+        skipped_reserved,
+        skipped_blocked
+    );
 
     modules.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(modules)
-}
-
-pub fn scan(source_dir: &Path, cfg: &config::Config) -> Result<Vec<Module>> {
-    scan_with_mode(source_dir, cfg, ScanMode::ActiveOnly)
-}
-
-pub fn scan_blocked(source_dir: &Path, cfg: &config::Config) -> Result<Vec<Module>> {
-    scan_with_mode(source_dir, cfg, ScanMode::BlockedOnly)
 }

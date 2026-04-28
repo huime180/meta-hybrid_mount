@@ -20,12 +20,12 @@ disable_umount = false
 enable_overlay_fallback = false
 default_mode = "overlay"
 
-[hymofs]
+[kasumi]
 enabled = false
 lkm_autoload = true
-lkm_dir = "/data/adb/modules/hybrid_mount/hymofs_lkm"
+lkm_dir = "/data/adb/modules/hybrid_mount/kasumi_lkm"
 lkm_kmi_override = ""
-mirror_path = "/dev/hymo_mirror"
+mirror_path = "/dev/kasumi_mirror"
 enable_kernel_debug = false
 enable_stealth = false
 enable_hidexattr = false
@@ -35,16 +35,16 @@ enable_statfs_spoof = false
 hide_uids = []
 cmdline_value = ""
 
-[hymofs.mount_hide]
+[kasumi.mount_hide]
 enabled = false
 path_pattern = ""
 
-[hymofs.statfs_spoof]
+[kasumi.statfs_spoof]
 enabled = false
 path = ""
 spoof_f_type = 0
 
-[hymofs.uname]
+[kasumi.uname]
 sysname = ""
 nodename = ""
 release = ""

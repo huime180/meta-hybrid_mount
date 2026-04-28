@@ -12,21 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap, ffi::CString, fs, os::unix::ffi::OsStrExt, path::PathBuf,
-    process::Command,
-};
+use std::{ffi::CString, fs, os::unix::ffi::OsStrExt, path::PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use super::{FeatureInfo, LkmPayload, build_features_payload, build_lkm_payload};
-use crate::{
-    conf::config::Config,
-    core::runtime_state::RuntimeState,
-    partitions,
-    sys::hymofs::{self, HymoFsStatus},
-};
+use crate::{conf::config::Config, core::runtime_state::RuntimeState, partitions};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PartitionInfo {
@@ -84,28 +75,6 @@ impl From<&crate::core::runtime_state::MountStatistics> for MountStatsPayload {
             success_rate: stats.success_rate(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SystemPayload {
-    pub api_version: i32,
-    pub kernel: String,
-    pub selinux: String,
-    pub mount_base: PathBuf,
-    pub mount_error_modules: Vec<String>,
-    pub mount_error_reasons: BTreeMap<String, String>,
-    pub skip_mount_modules: Vec<String>,
-    pub hymofs_available: bool,
-    pub hymofs_status: i32,
-    pub lkm: LkmPayload,
-    #[serde(rename = "mountStats")]
-    pub mount_stats: MountStatsPayload,
-    #[serde(rename = "detectedPartitions")]
-    pub detected_partitions: Vec<PartitionInfo>,
-    pub hooks: String,
-    pub features: FeatureInfo,
-    pub active_mounts: Vec<String>,
-    pub tmpfs_xattr_supported: bool,
 }
 
 #[derive(Debug)]
@@ -179,55 +148,6 @@ pub fn build_partitions_payload(config: &Config) -> Vec<PartitionInfo> {
     detect_partitions(config).unwrap_or_default()
 }
 
-pub fn build_system_payload(config: &Config, state: &RuntimeState) -> SystemPayload {
-    let status = if config.hymofs.enabled {
-        hymofs::check_status()
-    } else {
-        HymoFsStatus::NotPresent
-    };
-    let features = if config.hymofs.enabled {
-        build_features_payload()
-    } else {
-        FeatureInfo {
-            bitmask: 0,
-            names: Vec::new(),
-        }
-    };
-    let hooks = if config.hymofs.enabled {
-        hymofs::get_hooks().unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    SystemPayload {
-        api_version: 1,
-        kernel: read_kernel_release().unwrap_or_else(|_| "Unknown".to_string()),
-        selinux: read_selinux_status().unwrap_or_else(|_| "Unknown".to_string()),
-        mount_base: state.mount_point.clone(),
-        mount_error_modules: state.mount_error_modules.clone(),
-        mount_error_reasons: state.mount_error_reasons.clone(),
-        skip_mount_modules: state.skip_mount_modules.clone(),
-        hymofs_available: status == HymoFsStatus::Available,
-        hymofs_status: status_code(status),
-        lkm: build_lkm_payload(config),
-        mount_stats: build_mount_stats_payload(state),
-        detected_partitions: build_partitions_payload(config),
-        hooks,
-        features,
-        active_mounts: state.active_mounts.clone(),
-        tmpfs_xattr_supported: state.tmpfs_xattr_supported,
-    }
-}
-
-fn status_code(status: HymoFsStatus) -> i32 {
-    match status {
-        HymoFsStatus::Available => 0,
-        HymoFsStatus::NotPresent => 1,
-        HymoFsStatus::KernelTooOld => 2,
-        HymoFsStatus::ModuleTooOld => 3,
-    }
-}
-
 #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
 fn statvfs_usage(path: &std::path::Path) -> Result<(u64, u64, u64, f64)> {
     let c_path = CString::new(path.as_os_str().as_bytes())
@@ -278,49 +198,6 @@ fn format_size(bytes: u64) -> String {
     } else {
         format!("{value:.1}{}", UNITS[unit_idx])
     }
-}
-
-fn read_kernel_release() -> Result<String> {
-    if let Ok(value) = fs::read_to_string("/proc/sys/kernel/osrelease") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
-        }
-    }
-
-    let uts = unsafe {
-        let mut uts = std::mem::MaybeUninit::<libc::utsname>::uninit();
-        if libc::uname(uts.as_mut_ptr()) != 0 {
-            return Err(std::io::Error::last_os_error()).context("uname failed");
-        }
-        uts.assume_init()
-    };
-
-    let bytes = unsafe { std::ffi::CStr::from_ptr(uts.release.as_ptr()) }.to_bytes();
-    Ok(String::from_utf8_lossy(bytes).trim().to_string())
-}
-
-fn read_selinux_status() -> Result<String> {
-    if let Ok(value) = fs::read_to_string("/sys/fs/selinux/enforce") {
-        return Ok(match value.trim() {
-            "0" => "Permissive".to_string(),
-            "1" => "Enforcing".to_string(),
-            other if !other.is_empty() => other.to_string(),
-            _ => "Unknown".to_string(),
-        });
-    }
-
-    let output = Command::new("getenforce").output();
-    if let Ok(output) = output
-        && output.status.success()
-    {
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !text.is_empty() {
-            return Ok(text);
-        }
-    }
-
-    Ok("Unknown".to_string())
 }
 
 fn detect_partitions(config: &Config) -> Result<Vec<PartitionInfo>> {

@@ -21,7 +21,7 @@ use super::fallback;
 use crate::mount::umount_mgr;
 use crate::{
     conf::config,
-    core::{hymofs_coordinator::HymofsCoordinator, ops::plan::OverlayOperation},
+    core::{kasumi_coordinator::KasumiCoordinator, ops::plan::OverlayOperation},
     defs,
     mount::overlayfs,
 };
@@ -29,7 +29,7 @@ use crate::{
 pub(super) fn mount_overlay(
     op: &OverlayOperation,
     config: &config::Config,
-    hymofs: &HymofsCoordinator<'_>,
+    kasumi: &KasumiCoordinator<'_>,
 ) -> Result<Vec<String>> {
     let involved_modules = fallback::collect_involved_modules(op);
 
@@ -88,7 +88,7 @@ pub(super) fn mount_overlay(
         mount_source
     );
 
-    hymofs.hide_overlay_xattrs(Path::new(&op.target));
+    kasumi.hide_overlay_xattrs(Path::new(&op.target));
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if !config.disable_umount

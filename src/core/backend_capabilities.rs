@@ -12,29 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{conf::config::Config, sys::hymofs};
+use crate::{conf::config::Config, sys::kasumi};
 
 #[derive(Debug, Clone, Default)]
 pub struct BackendCapabilities {
-    hymofs_status: String,
-    hymofs_usable: bool,
+    kasumi_status: String,
+    kasumi_usable: bool,
 }
 
 impl BackendCapabilities {
     pub fn detect(config: &Config) -> Self {
-        let status = hymofs::check_status();
+        let status = kasumi::check_status();
 
         Self {
-            hymofs_status: hymofs::status_name(status).to_string(),
-            hymofs_usable: config.hymofs.enabled && hymofs::can_operate(),
+            kasumi_status: kasumi::status_name(status).to_string(),
+            kasumi_usable: config.kasumi.enabled && kasumi::can_operate(),
         }
     }
 
-    pub fn can_use_hymofs(&self) -> bool {
-        self.hymofs_usable
+    pub fn can_use_kasumi(&self) -> bool {
+        self.kasumi_usable
     }
 
-    pub fn hymofs_status(&self) -> &str {
-        &self.hymofs_status
+    pub fn kasumi_status(&self) -> &str {
+        &self.kasumi_status
     }
 }

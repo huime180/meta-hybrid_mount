@@ -264,14 +264,27 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
     let before_exists = procfs_node.as_ref().is_some_and(|node| node.exists());
 
     let path_str = path.to_string_lossy().into_owned();
-    let call_output = if config.call_mode.eq_ignore_ascii_case("nr") {
-        let nr = std::env::var("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR")
-            .context("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR is required when call mode is 'nr'")?;
+    let nr = if config.call_mode.eq_ignore_ascii_case("nr") {
+        Some(
+            std::env::var("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR")
+                .context("HYBRID_MOUNT_APATCH_KPM_UNUSED_NR is required when call mode is 'nr'")?,
+        )
+    } else {
+        None
+    };
+    let call_output = if let Some(nr) = nr.as_deref() {
         let _ = nr
             .parse::<u32>()
             .with_context(|| format!("invalid unused nr value: {nr}"))?;
+        crate::scoped_log!(
+            info,
+            "nuke",
+            "kpm invoke start: mode=nr, path={}, nr={}",
+            path.display(),
+            nr
+        );
         Command::new(&config.kp_bin)
-            .args(["kpm", "call", &nr, &path_str])
+            .args(["kpm", "call", nr, &path_str])
             .output()
             .with_context(|| format!("failed to call kpm unused nr with {}", config.kp_bin))
     } else {
@@ -279,6 +292,13 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
             .control_name
             .as_deref()
             .context("missing kpm control name for control mode")?;
+        crate::scoped_log!(
+            info,
+            "nuke",
+            "kpm invoke start: mode=control, path={}, control_name={}",
+            path.display(),
+            control_name
+        );
         Command::new(&config.kp_bin)
             .args(["kpm", "control", control_name, &path_str])
             .output()
@@ -320,6 +340,26 @@ fn execute_apatch_nuke(path: &Path) -> Result<()> {
                 format_output(&call_output)
             );
         }
+    }
+
+    if let Some(nr) = nr.as_deref() {
+        crate::scoped_log!(
+            info,
+            "nuke",
+            "kpm call success: path={}, nr={}, rc={}",
+            path.display(),
+            nr,
+            format_optional_rc(call_rc)
+        );
+    } else {
+        crate::scoped_log!(
+            info,
+            "nuke",
+            "kpm control success: path={}, control_name={}, rc={}",
+            path.display(),
+            config.control_name.as_deref().unwrap_or("<missing>"),
+            format_optional_rc(call_rc)
+        );
     }
 
     if let Some(node) = procfs_node {

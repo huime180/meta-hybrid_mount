@@ -26,16 +26,16 @@ use crate::{
     conf::config,
     core::{
         backend_capabilities::BackendCapabilities,
-        hymofs_coordinator::HymofsCoordinator,
         inventory::Module,
+        kasumi_coordinator::KasumiCoordinator,
         ops::plan::{MountPlan, OverlayOperation},
     },
     domain::MountMode,
     partitions, utils,
 };
 
-fn effective_mount_mode(requested: &MountMode, use_hymofs: bool) -> MountMode {
-    if matches!(requested, MountMode::Hymofs) && !use_hymofs {
+fn effective_mount_mode(requested: &MountMode, use_kasumi: bool) -> MountMode {
+    if matches!(requested, MountMode::Kasumi) && !use_kasumi {
         MountMode::Ignore
     } else {
         *requested
@@ -125,31 +125,31 @@ fn generate_with_root(
         .collect();
 
     let mut magic_ids = HashSet::new();
-    let mut hymofs_ids = HashSet::new();
+    let mut kasumi_ids = HashSet::new();
 
     let managed_partitions =
         partitions::managed_partition_set(&config.moduledir, &config.partitions);
-    let hymofs = HymofsCoordinator::new(config);
-    let hymofs_planning = hymofs.planning_state(capabilities, modules);
+    let kasumi = KasumiCoordinator::new(config);
+    let kasumi_planning = kasumi.planning_state(capabilities, modules);
     let mut planner = PlannerContext::new(
         config,
-        hymofs_planning.available,
+        kasumi_planning.available,
         managed_partitions.clone(),
     );
 
-    if hymofs_planning.requested && !hymofs_planning.available {
-        if config.hymofs.enabled {
+    if kasumi_planning.requested && !kasumi_planning.available {
+        if config.kasumi.enabled {
             crate::scoped_log!(
                 warn,
                 "planner",
-                "hymofs fallback: enabled=true, status={}, action=ignore",
-                capabilities.hymofs_status()
+                "kasumi fallback: enabled=true, status={}, action=ignore",
+                capabilities.kasumi_status()
             );
         } else {
             crate::scoped_log!(
                 warn,
                 "planner",
-                "hymofs fallback: enabled=false, action=ignore"
+                "kasumi fallback: enabled=false, action=ignore"
             );
         }
     }
@@ -176,8 +176,8 @@ fn generate_with_root(
         if presence.magic {
             magic_ids.insert(module.id.clone());
         }
-        if presence.hymofs {
-            hymofs_ids.insert(module.id.clone());
+        if presence.kasumi {
+            kasumi_ids.insert(module.id.clone());
         }
     }
 
@@ -225,16 +225,16 @@ fn generate_with_root(
 
     plan.overlay_module_ids = sorted_ids(overlay_ids);
     plan.magic_module_ids = sorted_ids(magic_ids);
-    plan.hymofs_module_ids = sorted_ids(hymofs_ids);
+    plan.kasumi_module_ids = sorted_ids(kasumi_ids);
 
     crate::scoped_log!(
         info,
         "planner",
-        "complete: overlay_ops={}, overlay_modules={}, magic_modules={}, hymofs_modules={}, hymofs_rule_compile=deferred",
+        "complete: overlay_ops={}, overlay_modules={}, magic_modules={}, kasumi_modules={}, kasumi_rule_compile=deferred",
         plan.overlay_ops.len(),
         plan.overlay_module_ids.len(),
         plan.magic_module_ids.len(),
-        plan.hymofs_module_ids.len()
+        plan.kasumi_module_ids.len()
     );
 
     Ok(plan)

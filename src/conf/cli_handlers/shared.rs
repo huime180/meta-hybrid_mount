@@ -15,64 +15,22 @@
 use std::{
     fs,
     os::unix::fs::{FileTypeExt, MetadataExt},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use anyhow::{Context, Result, bail};
-use serde::de::DeserializeOwned;
 
 use crate::{
     conf::{cli::Cli, config::Config, store::ConfigSession},
-    mount::hymofs as hymofs_mount,
+    mount::kasumi as kasumi_mount,
 };
 
-pub(super) fn decode_hex_json<T: DeserializeOwned>(payload: &str, type_name: &str) -> Result<T> {
-    if !payload.len().is_multiple_of(2) {
-        bail!("Invalid hex payload length for {}", type_name);
-    }
-
-    let json_bytes = (0..payload.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&payload[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
-        .with_context(|| format!("Failed to decode hex payload for {}", type_name))?;
-
-    serde_json::from_slice(&json_bytes)
-        .with_context(|| format!("Failed to parse {} JSON payload", type_name))
-}
-
-pub(super) fn load_config_session(cli: &Cli) -> Result<ConfigSession> {
-    ConfigSession::load_from_cli(cli)
-}
-
 pub(super) fn load_effective_config(cli: &Cli) -> Result<Config> {
-    Ok(load_config_session(cli)?.effective())
+    ConfigSession::load_persisted(cli)
 }
 
-pub(super) fn update_config_for_cli<F>(cli: &Cli, update: F) -> Result<(std::path::PathBuf, Config)>
-where
-    F: FnOnce(&mut Config),
-{
-    let mut session = load_config_session(cli)?;
-    update(session.persisted_mut());
-    let effective = session.effective();
-    let path = session.save()?;
-    Ok((path, effective))
-}
-
-pub(super) fn require_live_hymofs(config: &Config, description: &str) -> Result<()> {
-    hymofs_mount::require_live(config, description)
-}
-
-pub(super) fn print_config_save_result(path: &Path, what: &str) {
-    println!(
-        "{what} saved to {}. Running HymoFS state was not changed; apply the runtime separately for the new config to take effect.",
-        path.display()
-    );
-}
-
-pub(super) fn clear_pathbuf(path: &mut PathBuf) {
-    *path = PathBuf::new();
+pub(super) fn require_live_kasumi(config: &Config, description: &str) -> Result<()> {
+    kasumi_mount::require_live(config, description)
 }
 
 pub(super) fn detect_rule_file_type(path: &Path) -> Result<i32> {
@@ -82,7 +40,7 @@ pub(super) fn detect_rule_file_type(path: &Path) -> Result<i32> {
 
     if file_type.is_char_device() && metadata.rdev() == 0 {
         bail!(
-            "source {} is a whiteout node; use `hymofs rule hide` instead",
+            "source {} is a whiteout node; use `kasumi rule hide` instead",
             path.display()
         );
     }

@@ -51,3 +51,39 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Run unit tests
         run: cargo test --all-targets --workspace
+
+  webui-lints:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10"
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate constants
+        run: |
+          cat <<'EOF' > src/lib/constants_gen.ts
+          export const APP_VERSION = "dev";
+          export const IS_RELEASE = false;
+          export const RUST_PATHS = {
+            CONFIG: "/data/adb/hybrid-mount/config.toml",
+            DAEMON_STATE: "/data/adb/hybrid-mount/run/daemon_state.json",
+            BINARY: "/data/adb/modules/hybrid_mount/hybrid-mount",
+          } as const;
+          EOF
+          pnpm generate:info-tab-data
+      - name: Run lint
+        run: pnpm lint
+      - name: Run test
+        run: pnpm test
